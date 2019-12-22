@@ -13,14 +13,21 @@ class Net(nn.Module):
         if self.sup_out:
             self.fc_sup = nn.Linear(128, 10)
 
-    def forward(self, x, sup=False):
+    def features(self, x):
         x = self.conv1(x)
         x = F.relu(x)
         x = self.conv2(x)
         x = F.max_pool2d(x, 2)
         x = torch.flatten(x, 1)
         x = self.fc1(x)
-        x = F.normalize(x)
+        return F.normalize(x)
+
+    def forward(self, x, sup=False, detached=False):
+        if detached:
+            with torch.no_grad():
+                x = self.features(x)
+        else:
+            x = self.features(x)
         if sup:
             return x, self.fc_sup(x)
         return x
