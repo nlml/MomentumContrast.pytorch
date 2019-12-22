@@ -21,15 +21,30 @@ transform_sup = transforms.Compose(
     ]
 )
 
+transform_test = transforms.Compose(
+    [transforms.ToTensor(), transforms.Normalize((0.1307,), (0.3081,)),]
+)
+
 
 SUP_WEIGHT = 1.0
 WALK_WEIGHT = 1.0
 VISIT_WEIGHT = 1.0
+ENTMIN_WEIGHT = 1.0
 SUP_BATCH_SIZE = 100
-WALK_QUEUE_WEIGHT = 1.0
-MOCO_WEIGHT = 0.0001
-print("SUP_WEIGHT, SUP_BATCH_SIZE, MOCO_WEIGHT")
-print(SUP_WEIGHT, SUP_BATCH_SIZE, MOCO_WEIGHT)
+WALK_QUEUE_WEIGHT = 0.0
+MOCO_WEIGHT = 0.0
+print(
+    "SUP_WEIGHT, WALK_WEIGHT, VISIT_WEIGHT, ENTMIN_WEIGHT, SUP_BATCH_SIZE, WALK_QUEUE_WEIGHT, MOCO_WEIGHT"
+)
+print(
+    SUP_WEIGHT,
+    WALK_WEIGHT,
+    VISIT_WEIGHT,
+    ENTMIN_WEIGHT,
+    SUP_BATCH_SIZE,
+    WALK_QUEUE_WEIGHT,
+    MOCO_WEIGHT,
+)
 
 train_mnist_sup = datasets.MNIST(
     "./", train=True, download=True, transform=transform_sup
@@ -129,6 +144,11 @@ def calc_visit_loss(p_ab):
     return (p_ab_avg * torch.log(p_ab_avg)).sum()
 
 
+def calc_entmin_loss(logits):
+    p = torch.softmax(logits, 1)
+    return -(p * torch.log(p + 1e-8)).sum(1).mean()
+
+
 def train(
     model_q,
     model_k,
@@ -149,13 +169,14 @@ def train(
 
     for batch_idx, (data, target) in enumerate(train_loader):
 
-        loss = loss_moco = loss_sup = loss_walker = 0.0
+        loss = loss_moco = loss_sup = loss_walker = loss_entmin = 0.0
 
         x_q = data[0]
         x_k = data[1]
 
         x_q, x_k = x_q.to(device), x_k.to(device)
-        q = model_q(x_q)
+        q_pre_norm, pred_q = model_q(x_q, sup=True, detached=detached)
+        q = F.normalize(q_pre_norm)
 
         if MOCO_WEIGHT:
             k = model_k(x_k)
@@ -185,12 +206,17 @@ def train(
 
             loss_sup = sup_loss_fn(pred_sup, y_sup)
             loss += sup_weight * loss_sup
+
+            if ENTMIN_WEIGHT > 0.0:
+                loss_entmin = calc_entmin_loss(pred_q)
+                loss += ENTMIN_WEIGHT * loss_entmin
+
             if walk_weight > 0.0:
                 if WALK_QUEUE_WEIGHT > 0.0:
                     loss_walker += WALK_QUEUE_WEIGHT * calc_walker_loss(
                         s, queue, equality_matrix
                     )
-                loss_walker += calc_walker_loss(s, q, equality_matrix)
+                loss_walker += calc_walker_loss(s, q_pre_norm, equality_matrix)
                 loss += walk_weight * sup_weight * loss_walker
 
         optimizer.zero_grad()
@@ -292,7 +318,7 @@ train_mnist = datasets.MNIST(
     "./", train=True, download=True, transform=transform
 )
 test_mnist = datasets.MNIST(
-    "./", train=False, download=True, transform=transform_sup
+    "./", train=False, download=True, transform=transform_test
 )
 
 train_loader = torch.utils.data.DataLoader(
