@@ -45,8 +45,8 @@ class Net2(nn.Module):
 
         x = torch.flatten(x, 1)
         x = self.fc1(x)
-
-        return F.normalize(x)
+        return x
+        # return F.normalize(x)
 
 class Net(nn.Module):
     def __init__(self, sup_out=False):

@@ -21,7 +21,8 @@ SUP_WEIGHT = 1.0
 WALK_WEIGHT = 1.0
 VISIT_WEIGHT = 1.0
 SUP_BATCH_SIZE = 100
-MOCO_WEIGHT = 0.0
+WALK_QUEUE_WEIGHT = 0.0
+MOCO_WEIGHT = 0.0001
 print('SUP_WEIGHT, SUP_BATCH_SIZE, MOCO_WEIGHT')
 print(SUP_WEIGHT, SUP_BATCH_SIZE, MOCO_WEIGHT)
 
@@ -155,7 +156,8 @@ def train(model_q, model_k, device, train_loader, queue, optimizer, epoch,
             loss_sup = sup_loss_fn(pred_sup, y_sup)
             loss += sup_weight * loss_sup
             if walk_weight > 0.0:
-                loss_walker = calc_walker_loss(s, queue, equality_matrix)
+                if WALK_QUEUE_WEIGHT > 0.0:
+                    loss_walker += WALK_QUEUE_WEIGHT * calc_walker_loss(s, queue, equality_matrix)
                 loss_walker += calc_walker_loss(s, q, equality_matrix)
                 loss += walk_weight * sup_weight * loss_walker
 
