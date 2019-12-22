@@ -18,7 +18,11 @@ transform_sup = transforms.Compose([
 
 
 SUP_WEIGHT = 1.0
-SUP_BATCH_SIZE = 50
+WALK_WEIGHT = 1.0
+SUP_BATCH_SIZE = 100
+
+print('SUP_WEIGHT, SUP_BATCH_SIZE')
+print(SUP_WEIGHT, SUP_BATCH_SIZE)
 
 train_mnist_sup = datasets.MNIST('./', train=True, download=True, transform=transform_sup)
 train_mnist_sup.data = train_mnist_sup.data[:100]
@@ -88,7 +92,10 @@ def train(model_q, model_k, device, train_loader, queue, optimizer, epoch, temp=
 
         x_sup, y_sup = get_sup_batch()
         x_sup, y_sup = x_sup.to(device), y_sup.to(device)
-        pred_sup = model_q(x_sup, sup=True)
+        s, pred_sup = model_q(x_sup, sup=True)
+
+        equality_matrix = (y_sup[:, None].eq(y_sup[None, :])).float()
+        equality_matrix /= equality_matrix.sum(1, keepdim=True)
 
         x_q = data[0]
         x_k = data[1]
@@ -103,6 +110,13 @@ def train(model_q, model_k, device, train_loader, queue, optimizer, epoch, temp=
         l_pos = torch.bmm(q.view(N,1,-1), k.view(N,-1,1))
         l_neg = torch.mm(q.view(N,-1), queue.T.view(-1,K))
 
+        l_sup = torch.mm(s, queue.T.view(-1,K))
+        # w_sup contains probs 
+        w_sup = torch.mm(torch.softmax(l_sup, 1), torch.softmax(l_sup.T, 1))
+
+        # could use multilabel_margin_loss - using cross entropy for now
+        loss_walker = (-equality_matrix * torch.log(w_sup)).sum(1).mean()
+
         logits = torch.cat([l_pos.view(N, 1), l_neg], dim=1)
 
         labels = torch.zeros(N, dtype=torch.long)
@@ -111,7 +125,10 @@ def train(model_q, model_k, device, train_loader, queue, optimizer, epoch, temp=
         loss = cross_entropy_loss(logits/temp, labels)
         
         loss_sup = sup_loss_fn(pred_sup, y_sup)
-        loss += SUP_WEIGHT * loss_sup
+        if SUP_WEIGHT > 0.0:
+            loss += SUP_WEIGHT * loss_sup
+            if WALK_WEIGHT > 0.0:
+                loss += WALK_WEIGHT * SUP_WEIGHT * loss_walker
 
         optimizer.zero_grad()
         loss.backward()
@@ -126,7 +143,7 @@ def train(model_q, model_k, device, train_loader, queue, optimizer, epoch, temp=
 
     total_loss /= len(train_loader.dataset)
 
-    print('Train Epoch: {} \tLoss: {:.6f}'.format(epoch, total_loss))
+    print('Train Epoch: {} \tLoss: {:.6f} \tSup {:.6f} \tWalk {:.6f}'.format(epoch, total_loss, loss_sup, loss_walker))
 
 def test(args, model, device, test_loader):
     model.eval()
@@ -135,7 +152,7 @@ def test(args, model, device, test_loader):
     with torch.no_grad():
         for data, target in test_loader:
             data, target = data.to(device), target.to(device)
-            output = model(data, sup=True)
+            s, output = model(data, sup=True)
             test_loss += F.nll_loss(output, target, reduction='sum').item()  # sum up batch loss
             pred = output.argmax(dim=1, keepdim=True)  # get the index of the max log-probability
             correct += pred.eq(target.view_as(pred)).sum().item()
@@ -185,7 +202,7 @@ if __name__ == '__main__':
     
     queue = initialize_queue(model_k, device, train_loader)
    
-    test(args, model_q, device, test_loader)
+    #test(args, model_q, device, test_loader)
     for epoch in range(1, epochs + 1):
         train(model_q, model_k, device, train_loader, queue, optimizer, epoch)
         test(args, model_q, device, test_loader)

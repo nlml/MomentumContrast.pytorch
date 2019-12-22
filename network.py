@@ -19,7 +19,7 @@ class Net(nn.Module):
         x = F.max_pool2d(x, 2)
         x = torch.flatten(x, 1)
         x = self.fc1(x)
-        if sup:
-            return self.fc_sup(x)
         x = F.normalize(x)
+        if sup:
+            return x, self.fc_sup(x)
         return x
