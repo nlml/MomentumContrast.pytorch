@@ -34,6 +34,7 @@ SUP_BATCH_SIZE = 100
 WALK_QUEUE_WEIGHT = 1.0
 MOCO_WEIGHT = 1.0
 EMA_BETA = 0.99
+GAMMA_QUEUE = 0.0
 # DATASET = datasets.MNIST
 DATASET = datasets.FashionMNIST
 print(
@@ -130,9 +131,8 @@ def initialize_queue(model_k, device, train_loader):
     return queue
 
 
-def calc_walker_loss(sup_logits, oth_logits, equality_matrix):
-    size = oth_logits.shape[0]
-    l_sup = torch.mm(sup_logits, oth_logits.T.view(-1, size))
+def calc_walker_loss_old(sup_logits, oth_logits, equality_matrix):
+    l_sup = torch.mm(sup_logits, oth_logits.T)
     # w_sup contains probs
     p_ab = torch.softmax(l_sup, 1)
     p_ba = torch.softmax(l_sup.T, 1)
@@ -143,6 +143,38 @@ def calc_walker_loss(sup_logits, oth_logits, equality_matrix):
     if VISIT_WEIGHT > 0.0:
         loss += calc_visit_loss(p_ab)
     return loss
+
+def _get_p_a_b(a, b):
+    # Needed for both walker loss and visit loss
+    match_ab = torch.matmul(a, torch.t(b))
+    p_ab = F.softmax(match_ab, dim=1)
+    return p_ab, match_ab
+def calc_walker_loss(a, b, p_target, gamma=0.0):
+    p_ab, match_ab = _get_p_a_b(a, b)
+    # equality_matrix = (labels.view([-1, 1]).eq(labels)).float()
+    # p_target = equality_matrix / equality_matrix.sum(1, keepdim=True)
+
+    if gamma > 0.0:  # Learning by infinite association
+        match_ba = torch.t(match_ab)
+        match_bb = torch.matmul(b, torch.t(b))
+        add = np.log(gamma) if gamma < 1.0 else 0.0
+        match_ab_bb = torch.cat([match_ba, match_bb + add], dim=1)
+        eps = Variable(torch.Tensor([1e-8]))
+        eps = eps.cuda() if match_ab_bb.is_cuda else eps
+        p_ba_bb = torch.max(F.softmax(match_ab_bb, dim=1), eps)
+        N = a.shape[0]
+        M = b.shape[0]
+        Tbar_ul, Tbar_uu = torch.split(p_ba_bb, N, dim=1)
+        I = Variable(torch.eye(M))
+        I = I.cuda() if Tbar_uu.is_cuda else I
+        middle = torch.inverse(I - Tbar_uu + 1e-8)
+        p_aba = torch.matmul(torch.matmul(p_ab, middle), Tbar_ul)
+    else:  # Original learning by association method
+        p_ba = F.softmax(torch.t(match_ab), dim=1)
+        p_aba = torch.matmul(p_ab, p_ba)
+    loss_aba = -(p_target * torch.log(p_aba + 1e-8)).sum(1).mean(0)
+    return loss_aba, p_ab
+
 
 
 def calc_visit_loss(p_ab):
@@ -220,7 +252,7 @@ def train(
             if walk_weight > 0.0:
                 if WALK_QUEUE_WEIGHT > 0.0:
                     loss_walker += WALK_QUEUE_WEIGHT * calc_walker_loss(
-                        s, queue, equality_matrix
+                        s, queue, equality_matrix, gamme=GAMMA_QUEUE
                     )
                 loss_walker += calc_walker_loss(s, q_pre_norm, equality_matrix)
                 loss += walk_weight * sup_weight * loss_walker
