@@ -1,3 +1,4 @@
+from tqdm import tqdm
 import os
 import argparse
 import torch
@@ -205,7 +206,8 @@ def train(
 
     print(sup_weight, walk_weight, detached)
 
-    for batch_idx, (data, target) in enumerate(train_loader):
+    l = np.ceil(len(train_loader.dataset) / train_loader.batch_size)
+    for batch_idx, (data, target) in tqdm(enumerate(train_loader), total=l):
 
         loss = loss_moco = loss_sup = loss_walker = loss_entmin = 0.0
 
