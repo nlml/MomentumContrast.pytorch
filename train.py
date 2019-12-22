@@ -120,7 +120,10 @@ if __name__ == "__main__":
         help="Number of sweeps over the dataset to train",
     )
     parser.add_argument(
-        "--out", "-o", default="pretrained", help="Directory to output the result"
+        "--out",
+        "-o",
+        default="pretrained",
+        help="Directory to output the result",
     )
     parser.add_argument(
         "--no-cuda",
@@ -166,7 +169,9 @@ if __name__ == "__main__":
 
     model_q = Net().to(device)
     model_k = Net().to(device)
-    optimizer = optim.SGD(model_q.parameters(), lr=0.01, weight_decay=0.0001, momentum=0.9)
+    optimizer = optim.SGD(
+        model_q.parameters(), lr=0.01, weight_decay=0.0001, momentum=0.9
+    )
 
     queue = initialize_queue(model_k, device, train_loader)
 

@@ -61,7 +61,13 @@ if __name__ == "__main__":
     )
     if 1:  # just 100 labels
         rng = np.random.RandomState(1)
-        sel = np.concatenate([rng.choice(torch.where(mnist.targets == c)[0].numpy(), 10) for c in range(10)], 0)
+        sel = np.concatenate(
+            [
+                rng.choice(torch.where(mnist.targets == c)[0].numpy(), 10)
+                for c in range(10)
+            ],
+            0,
+        )
         mnist.data = mnist.data[sel]
         mnist.targets = mnist.targets[sel]
 

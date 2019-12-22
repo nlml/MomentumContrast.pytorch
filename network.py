@@ -3,7 +3,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-
 class Net2(nn.Module):
     def __init__(self):
         super(Net2, self).__init__()
@@ -47,6 +46,7 @@ class Net2(nn.Module):
         x = self.fc1(x)
         return x
         # return F.normalize(x)
+
 
 class Net(nn.Module):
     def __init__(self, sup_out=False):
