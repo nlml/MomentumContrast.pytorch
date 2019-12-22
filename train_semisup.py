@@ -31,32 +31,38 @@ WALK_WEIGHT = 1.0
 VISIT_WEIGHT = 1.0
 ENTMIN_WEIGHT = 1.0
 SUP_BATCH_SIZE = 100
-WALK_QUEUE_WEIGHT = 0.0
-MOCO_WEIGHT = 0.0
+WALK_QUEUE_WEIGHT = 1.0
+MOCO_WEIGHT = 1.0
+EMA_BETA = 0.99
+# DATASET = datasets.MNIST
+DATASET = datasets.FashionMNIST
 print(
-    "SUP_WEIGHT, WALK_WEIGHT, VISIT_WEIGHT, ENTMIN_WEIGHT, SUP_BATCH_SIZE, WALK_QUEUE_WEIGHT, MOCO_WEIGHT"
-)
-print(
-    SUP_WEIGHT,
-    WALK_WEIGHT,
-    VISIT_WEIGHT,
-    ENTMIN_WEIGHT,
-    SUP_BATCH_SIZE,
-    WALK_QUEUE_WEIGHT,
-    MOCO_WEIGHT,
+    "SUP_WEIGHT {}, WALK_WEIGHT {}, VISIT_WEIGHT {}, ENTMIN_WEIGHT {}, SUP_BATCH_SIZE {}, WALK_QUEUE_WEIGHT {}, MOCO_WEIGHT {}, EMA_BETA {},".format(
+        SUP_WEIGHT,
+        WALK_WEIGHT,
+        VISIT_WEIGHT,
+        ENTMIN_WEIGHT,
+        SUP_BATCH_SIZE,
+        WALK_QUEUE_WEIGHT,
+        MOCO_WEIGHT,
+        EMA_BETA,
+    )
 )
 
-train_mnist_sup = datasets.MNIST(
+
+
+train_mnist_sup = DATASET(
     "./", train=True, download=True, transform=transform_sup
 )
 rng = np.random.RandomState(1)
-sel = np.concatenate(
-    [
-        rng.choice(torch.where(train_mnist_sup.targets == c)[0].numpy(), 10)
-        for c in range(10)
-    ],
-    0,
-)
+
+
+def random_subset_of_class_idxs(c):
+    where = torch.where(train_mnist_sup.targets == c)[0]
+    return rng.choice(where.numpy(), 10)
+
+
+sel = np.concatenate([random_subset_of_class_idxs(c) for c in range(10)], 0)
 train_mnist_sup.data = train_mnist_sup.data[sel]
 train_mnist_sup.targets = train_mnist_sup.targets[sel]
 train_loader_sup = torch.utils.data.DataLoader(
@@ -89,7 +95,7 @@ class DuplicatedCompose(object):
         return img1, img2
 
 
-def momentum_update(model_q, model_k, beta=0.999):
+def momentum_update(model_q, model_k, beta=EMA_BETA):
     param_k = model_k.state_dict()
     param_q = model_q.named_parameters()
     for n, q in param_q:
@@ -314,10 +320,8 @@ transform = DuplicatedCompose(
     ]
 )
 
-train_mnist = datasets.MNIST(
-    "./", train=True, download=True, transform=transform
-)
-test_mnist = datasets.MNIST(
+train_mnist = DATASET("./", train=True, download=True, transform=transform)
+test_mnist = DATASET(
     "./", train=False, download=True, transform=transform_test
 )
 
