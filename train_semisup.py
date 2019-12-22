@@ -34,11 +34,11 @@ SUP_BATCH_SIZE = 100
 WALK_QUEUE_WEIGHT = 1.0
 MOCO_WEIGHT = 1.0
 EMA_BETA = 0.99
-GAMMA_QUEUE = 0.0
+GAMMA_QUEUE = 1.0
 # DATASET = datasets.MNIST
 DATASET = datasets.FashionMNIST
 print(
-    "SUP_WEIGHT {}, WALK_WEIGHT {}, VISIT_WEIGHT {}, ENTMIN_WEIGHT {}, SUP_BATCH_SIZE {}, WALK_QUEUE_WEIGHT {}, MOCO_WEIGHT {}, EMA_BETA {},".format(
+    "SUP_WEIGHT {}, WALK_WEIGHT {}, VISIT_WEIGHT {}, ENTMIN_WEIGHT {}, SUP_BATCH_SIZE {}, WALK_QUEUE_WEIGHT {}, MOCO_WEIGHT {}, EMA_BETA {}, GAMMA_QUEUE {},".format(
         SUP_WEIGHT,
         WALK_WEIGHT,
         VISIT_WEIGHT,
@@ -47,9 +47,9 @@ print(
         WALK_QUEUE_WEIGHT,
         MOCO_WEIGHT,
         EMA_BETA,
+        GAMMA_QUEUE,
     )
 )
-
 
 
 train_mnist_sup = DATASET(
@@ -144,11 +144,14 @@ def calc_walker_loss_old(sup_logits, oth_logits, equality_matrix):
         loss += calc_visit_loss(p_ab)
     return loss
 
+
 def _get_p_a_b(a, b):
     # Needed for both walker loss and visit loss
     match_ab = torch.matmul(a, torch.t(b))
     p_ab = F.softmax(match_ab, dim=1)
     return p_ab, match_ab
+
+
 def calc_walker_loss(a, b, p_target, gamma=0.0):
     p_ab, match_ab = _get_p_a_b(a, b)
     # equality_matrix = (labels.view([-1, 1]).eq(labels)).float()
@@ -174,7 +177,6 @@ def calc_walker_loss(a, b, p_target, gamma=0.0):
         p_aba = torch.matmul(p_ab, p_ba)
     loss_aba = -(p_target * torch.log(p_aba + 1e-8)).sum(1).mean(0)
     return loss_aba, p_ab
-
 
 
 def calc_visit_loss(p_ab):
@@ -252,7 +254,7 @@ def train(
             if walk_weight > 0.0:
                 if WALK_QUEUE_WEIGHT > 0.0:
                     loss_walker += WALK_QUEUE_WEIGHT * calc_walker_loss(
-                        s, queue, equality_matrix, gamme=GAMMA_QUEUE
+                        s, queue, equality_matrix, gamma=GAMMA_QUEUE
                     )
                 loss_walker += calc_walker_loss(s, q_pre_norm, equality_matrix)
                 loss += walk_weight * sup_weight * loss_walker
