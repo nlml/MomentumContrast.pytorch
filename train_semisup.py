@@ -19,10 +19,11 @@ transform_sup = transforms.Compose([
 
 SUP_WEIGHT = 1.0
 WALK_WEIGHT = 1.0
+VISIT_WEIGHT = 1.0
 SUP_BATCH_SIZE = 100
-
-print('SUP_WEIGHT, SUP_BATCH_SIZE')
-print(SUP_WEIGHT, SUP_BATCH_SIZE)
+MOCO_WEIGHT = 0.0
+print('SUP_WEIGHT, SUP_BATCH_SIZE, MOCO_WEIGHT')
+print(SUP_WEIGHT, SUP_BATCH_SIZE, MOCO_WEIGHT)
 
 train_mnist_sup = datasets.MNIST(
     './', train=True, download=True, transform=transform_sup)
@@ -92,10 +93,19 @@ def calc_walker_loss(sup_logits, oth_logits, equality_matrix):
     size = oth_logits.shape[0]
     l_sup = torch.mm(sup_logits, oth_logits.T.view(-1, size))
     # w_sup contains probs
-    w_sup = torch.mm(torch.softmax(l_sup, 1), torch.softmax(l_sup.T, 1))
+    p_ab = torch.softmax(l_sup, 1)
+    p_ba = torch.softmax(l_sup.T, 1)
+    p_aba = torch.mm(p_ab, p_ba)
     # could use multilabel_margin_loss - using cross entropy for now
-    return F.binary_cross_entropy(w_sup, equality_matrix)
-    #return (-equality_matrix * torch.log(w_sup + 1e-8)).sum(1).mean()
+    # return F.binary_cross_entropy(w_sup, equality_matrix)
+    loss = (-equality_matrix * torch.log(p_aba + 1e-8)).sum(1).mean()
+    if VISIT_WEIGHT > 0.0:
+        loss += calc_visit_loss(p_ab)
+    return loss
+
+def calc_visit_loss(p_ab):
+    p_ab_avg = p_ab.mean(0)
+    return (p_ab_avg * torch.log(p_ab_avg)).sum()
 
 def train(model_q, model_k, device, train_loader, queue, optimizer, epoch,
           temp=0.07, sup_weight=0.0, walk_weight=0.0, detached=False):
@@ -106,28 +116,32 @@ def train(model_q, model_k, device, train_loader, queue, optimizer, epoch,
 
     for batch_idx, (data, target) in enumerate(train_loader):
 
+        loss = loss_moco = loss_sup = loss_walker = 0.0
+
         x_q = data[0]
         x_k = data[1]
 
         x_q, x_k = x_q.to(device), x_k.to(device)
         q = model_q(x_q)
-        k = model_k(x_k)
-        k = k.detach()
 
-        N = data[0].shape[0]
-        K = queue.shape[0]
-        l_pos = torch.bmm(q.view(N,1,-1), k.view(N,-1,1))
-        l_neg = torch.mm(q.view(N,-1), queue.T.view(-1,K))
+        if MOCO_WEIGHT:
+            k = model_k(x_k)
+            k = k.detach()
+
+            N = data[0].shape[0]
+            K = queue.shape[0]
+            l_pos = torch.bmm(q.view(N,1,-1), k.view(N,-1,1))
+            l_neg = torch.mm(q.view(N,-1), queue.T.view(-1,K))
+            
+
+            logits = torch.cat([l_pos.view(N, 1), l_neg], dim=1)
+
+            labels = torch.zeros(N, dtype=torch.long)
+            labels = labels.to(device)
+
+            loss = cross_entropy_loss(logits/temp, labels) * MOCO_WEIGHT
+            loss_moco = loss.item()
         
-
-        logits = torch.cat([l_pos.view(N, 1), l_neg], dim=1)
-
-        labels = torch.zeros(N, dtype=torch.long)
-        labels = labels.to(device)
-
-        loss = cross_entropy_loss(logits/temp, labels)
-        loss_moco = loss.item()
-        loss_sup = loss_walker = 0.0
         
         if sup_weight > 0.0:
             x_sup, y_sup = get_sup_batch()
@@ -151,10 +165,11 @@ def train(model_q, model_k, device, train_loader, queue, optimizer, epoch,
 
         total_loss += loss.item()
 
-        momentum_update(model_q, model_k)
+        if MOCO_WEIGHT:
+            momentum_update(model_q, model_k)
 
-        queue = queue_data(queue, k)
-        queue = dequeue_data(queue)
+            queue = queue_data(queue, k)
+            queue = dequeue_data(queue)
 
     total_loss /= len(train_loader.dataset)
 
