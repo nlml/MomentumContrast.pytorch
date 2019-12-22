@@ -162,13 +162,11 @@ def calc_walker_loss(a, b, p_target, gamma=0.0):
         match_bb = torch.matmul(b, torch.t(b))
         add = np.log(gamma) if gamma < 1.0 else 0.0
         match_ab_bb = torch.cat([match_ba, match_bb + add], dim=1)
-        eps = Variable(torch.Tensor([1e-8]))
-        eps = eps.cuda() if match_ab_bb.is_cuda else eps
-        p_ba_bb = torch.max(F.softmax(match_ab_bb, dim=1), eps)
+        p_ba_bb = torch.clamp(F.softmax(match_ab_bb, dim=1), min=1e-8)
         N = a.shape[0]
         M = b.shape[0]
-        Tbar_ul, Tbar_uu = torch.split(p_ba_bb, N, dim=1)
-        I = Variable(torch.eye(M))
+        Tbar_ul, Tbar_uu = p_ba_bb[:, :N], p_ba_bb[:, N:]
+        I = torch.eye(M)
         I = I.cuda() if Tbar_uu.is_cuda else I
         middle = torch.inverse(I - Tbar_uu + 1e-8)
         p_aba = torch.matmul(torch.matmul(p_ab, middle), Tbar_ul)
@@ -176,7 +174,7 @@ def calc_walker_loss(a, b, p_target, gamma=0.0):
         p_ba = F.softmax(torch.t(match_ab), dim=1)
         p_aba = torch.matmul(p_ab, p_ba)
     loss_aba = -(p_target * torch.log(p_aba + 1e-8)).sum(1).mean(0)
-    return loss_aba, p_ab
+    return loss_aba
 
 
 def calc_visit_loss(p_ab):
