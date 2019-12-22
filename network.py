@@ -3,6 +3,51 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
+
+class Net2(nn.Module):
+    def __init__(self):
+        super(Net2, self).__init__()
+
+        s_old = 1
+        s = 32
+        self.conv1 = nn.Conv2d(s_old, s, 3, 1, padding=1)
+        self.conv2 = nn.Conv2d(s, s, 3, 1, padding=1)
+        s_old = s
+        s = 64
+        self.conv3 = nn.Conv2d(s_old, s, 3, 1, padding=1)
+        self.conv4 = nn.Conv2d(s, s, 3, 1, padding=1)
+        s_old = s
+        s = 128
+        self.conv5 = nn.Conv2d(s_old, s, 3, 1, padding=1)
+        self.conv6 = nn.Conv2d(s, s, 3, 1, padding=1)
+        s_old = s
+
+        self.fc1 = nn.Linear(1152, 128)
+
+    def forward(self, x):
+        x = self.conv1(x)
+        x = F.elu(x)
+        x = self.conv2(x)
+        x = F.elu(x)
+        x = F.max_pool2d(x, 2)
+
+        x = self.conv3(x)
+        x = F.elu(x)
+        x = self.conv4(x)
+        x = F.elu(x)
+        x = F.max_pool2d(x, 2)
+
+        x = self.conv5(x)
+        x = F.elu(x)
+        x = self.conv6(x)
+        x = F.elu(x)
+        x = F.max_pool2d(x, 2)
+
+        x = torch.flatten(x, 1)
+        x = self.fc1(x)
+
+        return F.normalize(x)
+
 class Net(nn.Module):
     def __init__(self, sup_out=False):
         super(Net, self).__init__()
@@ -21,6 +66,23 @@ class Net(nn.Module):
         x = torch.flatten(x, 1)
         x = self.fc1(x)
         return F.normalize(x)
+
+    def forward(self, x, sup=False, detached=False):
+        if detached:
+            with torch.no_grad():
+                x = self.features(x)
+        else:
+            x = self.features(x)
+        if sup:
+            return x, self.fc_sup(x)
+        return x
+
+
+class WrapNet(nn.Module):
+    def __init__(self, features):
+        super(WrapNet, self).__init__()
+        self.features = features
+        self.fc_sup = nn.Linear(128, 10)
 
     def forward(self, x, sup=False, detached=False):
         if detached:

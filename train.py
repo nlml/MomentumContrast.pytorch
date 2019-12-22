@@ -120,7 +120,7 @@ if __name__ == "__main__":
         help="Number of sweeps over the dataset to train",
     )
     parser.add_argument(
-        "--out", "-o", default="result", help="Directory to output the result"
+        "--out", "-o", default="pretrained", help="Directory to output the result"
     )
     parser.add_argument(
         "--no-cuda",
@@ -166,7 +166,7 @@ if __name__ == "__main__":
 
     model_q = Net().to(device)
     model_k = Net().to(device)
-    optimizer = optim.SGD(model_q.parameters(), lr=0.01, weight_decay=0.0001)
+    optimizer = optim.SGD(model_q.parameters(), lr=0.01, weight_decay=0.0001, momentum=0.9)
 
     queue = initialize_queue(model_k, device, train_loader)
 
@@ -174,4 +174,5 @@ if __name__ == "__main__":
         train(model_q, model_k, device, train_loader, queue, optimizer, epoch)
 
     os.makedirs(out_dir, exist_ok=True)
-    torch.save(model_q.state_dict(), os.path.join(out_dir, "model.pth"))
+    sd = {"model": model_q.state_dict(), "model_k": model_k.state_dict()}
+    torch.save(sd, os.path.join(out_dir, "model.pth"))

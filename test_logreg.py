@@ -8,7 +8,7 @@ import tqdm
 from sklearn.manifold import TSNE
 import matplotlib.pyplot as plt
 from matplotlib.offsetbox import OffsetImage, AnnotationBbox
-from network import Net
+from network import Net, WrapNet
 import torch
 import torch.utils.data as tud
 from sklearn.linear_model import LogisticRegression
@@ -47,7 +47,7 @@ def show(mnist, targets, ret):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="MoCo example: MNIST")
     parser.add_argument(
-        "--model", "-m", default="result/model.pth", help="Model file"
+        "--model", "-m", default="pretrained/model.pth", help="Model file"
     )
     args = parser.parse_args()
     model_path = args.model
@@ -59,17 +59,23 @@ if __name__ == "__main__":
     mnist = datasets.MNIST(
         "./", train=True, download=True, transform=transform
     )
+    if 1:  # just 100 labels
+        rng = np.random.RandomState(1)
+        sel = np.concatenate([rng.choice(torch.where(mnist.targets == c)[0].numpy(), 10) for c in range(10)], 0)
+        mnist.data = mnist.data[sel]
+        mnist.targets = mnist.targets[sel]
+
     device = "cuda" if torch.cuda.is_available() else "cpu"
     model = Net().to(device)
-    model.load_state_dict(
-        torch.load(model_path, map_location=torch.device("cpu"))
-    )
+    sd = torch.load(model_path, map_location=torch.device("cpu"))["model"]
+    model.load_state_dict(sd)
+    model = WrapNet(model)
     mnist_test = datasets.MNIST(
         "./", train=False, download=True, transform=transform
     )
     all_x = get_all_x(mnist)
     all_x_test = get_all_x(mnist_test)
-    for C in np.logspace(-1, 9, 6):
+    for C in np.logspace(2, 9, 5):
         print()
         print("C =", C)
         lr = LogisticRegression(
