@@ -446,6 +446,5 @@ def go(run_name):
     # torch.save(model_q.state_dict(), os.path.join(out_dir, "model.pth"))
 
 
-# assert len(sys.argv) == 2
-go("mnist/walker-moco-entmin")
-go("mnist/walker-no-norm-entmin")
+assert len(sys.argv) == 2
+go(sys.argv[1])
