@@ -25,8 +25,6 @@ datasets_dict = {
 
 train_cols = ["loss", "loss_moco", "loss_sup", "loss_entmin", "loss_walker"]
 valid_cols = ["loss", "accuracy"]
-RESULTS_TRAIN = pd.DataFrame(np.ones([0, len(train_cols)]), columns=train_cols)
-RESULTS_VALID = pd.DataFrame(np.ones([0, len(valid_cols)]), columns=valid_cols)
 
 
 def get_transform_sup():
@@ -189,8 +187,20 @@ def calc_entmin_loss(logits):
     return -(p * torch.log(p + 1e-8)).sum(1).mean()
 
 
+def update_with_metrics(dfs, train_or_valid, run_name, metrics, epoch):
+    df = dfs[train_or_valid]
+    df = pd.concat(
+        [df, pd.DataFrame(metrics[None, :], columns=df.columns, index=[epoch])]
+    )
+    save_path = os.path.join("logs", run_name)
+    os.makedirs(save_path, exist_ok=True)
+    df.to_csv(os.path.join(save_path, f"{train_or_valid}.csv"))
+    return dfs
+
+
 @gin.configurable
 def train(
+    dfs,
     run_name,
     model_q,
     model_k,
@@ -212,7 +222,6 @@ def train(
     gamma_queue=0.0,
     norm_logits_to_walker=True,
 ):
-    global RESULTS_TRAIN
     model_q.train()
     total_loss, total_loss_moco, total_loss_sup, total_loss_entmin, total_loss_walker = (
         [0] * 5
@@ -321,20 +330,10 @@ def train(
             epoch, metrics[0], metrics[1], metrics[2], metrics[3], metrics[4]
         )
     )
-
-    RESULTS_TRAIN = pd.concat(
-        [
-            RESULTS_TRAIN,
-            pd.DataFrame(metrics[None, :], columns=train_cols, index=[epoch]),
-        ]
-    )
-    save_path = os.path.join("logs", run_name)
-    os.makedirs(save_path, exist_ok=True)
-    RESULTS_TRAIN.to_csv(os.path.join(save_path, "train.csv"))
+    return update_with_metrics(dfs, "train", run_name, metrics, epoch)
 
 
-def test(model, epoch, device, test_loader, run_name):
-    global RESULTS_VALID
+def test(dfs, model, epoch, device, test_loader, run_name):
     model.eval()
     test_loss = 0
     correct = 0
@@ -359,15 +358,7 @@ def test(model, epoch, device, test_loader, run_name):
         )
     )
     metrics = np.array([test_loss, test_accu])
-    RESULTS_VALID = pd.concat(
-        [
-            RESULTS_VALID,
-            pd.DataFrame(metrics[None, :], columns=valid_cols, index=[epoch]),
-        ]
-    )
-    save_path = os.path.join("logs", run_name)
-    os.makedirs(save_path, exist_ok=True)
-    RESULTS_VALID.to_csv(os.path.join(save_path, "valid.csv"))
+    return update_with_metrics(dfs, "valid", run_name, metrics, epoch)
 
 
 @gin.configurable
@@ -429,8 +420,18 @@ def go(run_name):
     )
     queue = initialize_queue(model_k, device, train_loader)
 
+    dfs = {
+        "train": pd.DataFrame(
+            np.ones([0, len(train_cols)]), columns=train_cols
+        ),
+        "valid": pd.DataFrame(
+            np.ones([0, len(valid_cols)]), columns=valid_cols
+        ),
+    }
+
     for epoch in range(1, epochs + 1):
-        train(
+        dfs = train(
+            dfs,
             run_name,
             model_q,
             model_k,
@@ -441,7 +442,7 @@ def go(run_name):
             optimizer,
             epoch,
         )
-        test(model_q, epoch, device, test_loader, run_name)
+        dfs = test(dfs, model_q, epoch, device, test_loader, run_name)
 
     # os.makedirs(out_dir, exist_ok=True)
     # torch.save(model_q.state_dict(), os.path.join(out_dir, "model.pth"))
