@@ -36,6 +36,7 @@ WALK_QUEUE_WEIGHT = 1.0
 MOCO_WEIGHT = 1.0
 EMA_BETA = 0.99
 GAMMA_QUEUE = 1.0
+NORM_BB = True
 # DATASET = datasets.MNIST
 DATASET = datasets.FashionMNIST
 print(
@@ -153,14 +154,21 @@ def _get_p_a_b(a, b):
     return p_ab, match_ab
 
 
-def calc_walker_loss(a, b, p_target, gamma=0.0):
+def calc_walker_loss(a, b, p_target, gamma=0.0, norm_bb=NORM_BB):
     p_ab, match_ab = _get_p_a_b(a, b)
+    p_ba = F.softmax(match_ab.T, dim=1)
     # equality_matrix = (labels.view([-1, 1]).eq(labels)).float()
     # p_target = equality_matrix / equality_matrix.sum(1, keepdim=True)
 
     if gamma > 0.0:  # Learning by infinite association
         match_ba = torch.t(match_ab)
-        match_bb = torch.matmul(b, torch.t(b))
+        
+        if norm_bb:
+            b_normed = F.normalize(b, 1)
+            match_bb = torch.matmul(b_normed, torch.t(b_normed))
+        else:
+            match_bb = torch.matmul(b, torch.t(b))
+        
         add = np.log(gamma) if gamma < 1.0 else 0.0
         match_ab_bb = torch.cat([match_ba, match_bb + add], dim=1)
         p_ba_bb = torch.clamp(F.softmax(match_ab_bb, dim=1), min=1e-8)
@@ -169,8 +177,19 @@ def calc_walker_loss(a, b, p_target, gamma=0.0):
         Tbar_ul, Tbar_uu = p_ba_bb[:, :N], p_ba_bb[:, N:]
         I = torch.eye(M)
         I = I.cuda() if Tbar_uu.is_cuda else I
+
+        ### Middle calculation ###
         middle = torch.inverse(I - Tbar_uu + 1e-8)
-        p_aba = torch.matmul(torch.matmul(p_ab, middle), Tbar_ul)
+        # middle = I
+        # for i in range(1, 2):
+        #     middle += torch.matrix_power(Tbar_uu, i)
+        # middle /= Tbar_uu.sum(1, keepdim=True)
+        # middle = torch.inverse(Tbar_uu + 1e-8)
+        # p_aba = torch.matmul(torch.matmul(p_ab, middle), Tbar_ul)
+        p_aba = torch.matmul(torch.matmul(p_ab, middle), p_ba)
+        ##########################
+        
+        p_aba /= p_aba.sum(1, keepdim=True)
     else:  # Original learning by association method
         p_ba = F.softmax(torch.t(match_ab), dim=1)
         p_aba = torch.matmul(p_ab, p_ba)
