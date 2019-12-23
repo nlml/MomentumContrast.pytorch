@@ -137,11 +137,11 @@ def _get_p_a_b(a, b):
     return p_ab, match_ab
 
 
-def calc_walker_loss(a, b, p_target, gamma=0.0, visit_weight=0.0, norm=False):
+def calc_walker_loss(a, b, p_target, gamma=0.0, visit_weight=0.0, norm=False, temp=1.0):
     if norm:
         a, b = [F.normalize(i, 1) for i in [a, b]]
     p_ab, match_ab = _get_p_a_b(a, b)
-    p_ba = F.softmax(match_ab.T, dim=1)
+    p_ba = F.softmax(match_ab.T / temp, dim=1)
     # equality_matrix = (labels.view([-1, 1]).eq(labels)).float()
     # p_target = equality_matrix / equality_matrix.sum(1, keepdim=True)
 
@@ -151,7 +151,7 @@ def calc_walker_loss(a, b, p_target, gamma=0.0, visit_weight=0.0, norm=False):
 
         add = np.log(gamma) if gamma < 1.0 else 0.0
         match_ab_bb = torch.cat([match_ba, match_bb + add], dim=1)
-        p_ba_bb = torch.clamp(F.softmax(match_ab_bb, dim=1), min=1e-8)
+        p_ba_bb = torch.clamp(F.softmax(match_ab_bb / temp, dim=1), min=1e-8)
         N = a.shape[0]
         M = b.shape[0]
         Tbar_ul, Tbar_uu = p_ba_bb[:, :N], p_ba_bb[:, N:]
@@ -171,7 +171,7 @@ def calc_walker_loss(a, b, p_target, gamma=0.0, visit_weight=0.0, norm=False):
 
         p_aba /= p_aba.sum(1, keepdim=True)
     else:  # Original learning by association method
-        p_ba = F.softmax(torch.t(match_ab), dim=1)
+        p_ba = F.softmax(torch.t(match_ab) / temp, dim=1)
         p_aba = torch.matmul(p_ab, p_ba)
     loss_aba = -(p_target * torch.log(p_aba + 1e-8)).sum(1).mean(0)
     return loss_aba
@@ -286,6 +286,7 @@ def train(
                         gamma=gamma_queue,
                         visit_weight=visit_weight_queue,
                         norm=norm_logits_to_walker,
+                        temp=walker_temp
                     )
                 loss_walker += calc_walker_loss(
                     s,
@@ -293,6 +294,7 @@ def train(
                     equality_matrix,
                     visit_weight=visit_weight,
                     norm=norm_logits_to_walker,
+                    temp=walker_temp
                 )
                 loss += walk_weight * loss_walker
 
