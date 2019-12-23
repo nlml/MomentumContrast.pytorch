@@ -13,6 +13,8 @@ import numpy as np
 from network import Net, Net2, MLP, WrapNet
 import pandas as pd
 
+sup_loss_fn = nn.CrossEntropyLoss()
+cross_entropy_loss = nn.CrossEntropyLoss()
 
 archi_dict = {"Net": Net, "Net2": Net2, "MLP": MLP}
 
@@ -195,7 +197,6 @@ def train(
     device,
     train_loader,
     train_loader_sup,
-    sup_loss_fn,
     queue,
     optimizer,
     epoch,
@@ -388,8 +389,6 @@ def go(run_name):
 
     train_loader_sup = sup_loader()
     train_loader_sup.iter = iter(train_loader_sup)
-    sup_loss_fn = nn.CrossEntropyLoss().cuda()
-    cross_entropy_loss = nn.CrossEntropyLoss().cuda()
 
     use_cuda = not no_cuda and torch.cuda.is_available()
     device = torch.device("cuda" if use_cuda else "cpu")
@@ -437,16 +436,16 @@ def go(run_name):
             device,
             train_loader,
             train_loader_sup,
-            sup_loss_fn,
             queue,
             optimizer,
             epoch,
         )
         test(model_q, epoch, device, test_loader, run_name)
 
-    os.makedirs(out_dir, exist_ok=True)
-    torch.save(model_q.state_dict(), os.path.join(out_dir, "model.pth"))
+    # os.makedirs(out_dir, exist_ok=True)
+    # torch.save(model_q.state_dict(), os.path.join(out_dir, "model.pth"))
 
 
-assert len(sys.argv) == 2
-go(sys.argv[1])
+# assert len(sys.argv) == 2
+go("mnist/walker-moco-entmin")
+go("mnist/walker-no-norm-entmin")
