@@ -9,7 +9,7 @@ from torchvision import datasets, transforms
 from PIL import Image
 import numpy as np
 
-from network import Net, Net2, WrapNet
+from network import Net, Net2, MLP, WrapNet
 
 transform_sup = transforms.Compose(
     [
@@ -26,7 +26,7 @@ transform_test = transforms.Compose(
     [transforms.ToTensor(), transforms.Normalize((0.1307,), (0.3081,)),]
 )
 
-
+NET = MLP
 SUP_WEIGHT = 1.0
 WALK_WEIGHT = 1.0
 VISIT_WEIGHT = 1.0
@@ -385,8 +385,8 @@ test_loader = torch.utils.data.DataLoader(
     test_mnist, batch_size=batchsize, shuffle=True, **kwargs
 )
 
-model_q = WrapNet(Net2()).to(device)
-model_k = WrapNet(Net2()).to(device)
+model_q = WrapNet(NET()).to(device)
+model_k = WrapNet(NET()).to(device)
 
 # sd = torch.load("pretrained/model.pth")
 # model_q.load_state_dict(sd["model"])

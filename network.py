@@ -3,6 +3,24 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
+class MLP(nn.Module):
+    def __init__(self, layer_sizes = [784, 1000, 500, 250, 250, 128]):
+        super(MLP, self).__init__()
+        self.layer_sizes = layer_sizes
+        mlp_layers = []
+        for s_old, s in zip(self.layer_sizes[:-1], self.layer_sizes[1:]):
+            mlp_layers += [
+                nn.Linear(s_old, s, bias=False),
+                nn.ReLU(),
+                nn.BatchNorm1d(s)
+            ]
+        self.mlp = nn.Sequential(*mlp_layers)
+
+    def forward(self, x):
+        x = x.view(x.shape[0], -1)
+        x = self.mlp(x)
+        return x
+
 class Net2(nn.Module):
     def __init__(self):
         super(Net2, self).__init__()
