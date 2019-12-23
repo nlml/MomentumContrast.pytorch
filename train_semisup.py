@@ -234,7 +234,7 @@ def train(
         x_q, x_k = x_q.to(device), x_k.to(device)
         q, pred_q = model_q(x_q, sup=True, detached=detached)
 
-        if moco_weight:
+        if moco_weight > 0.0:
             with torch.no_grad():
                 k = model_k(x_k)
             k = F.normalize(k, 1)
@@ -270,6 +270,7 @@ def train(
 
             if walk_weight > 0.0:
                 if walk_queue_weight > 0.0:
+                    assert moco_weight > 0, "need moco for queue walker loss"
                     loss_walker += walk_queue_weight * calc_walker_loss(
                         s,
                         queue,
@@ -302,7 +303,6 @@ def train(
 
             queue = queue_data(queue, k)
             queue = dequeue_data(queue)
-        break
 
     metrics = np.array(
         [
@@ -371,9 +371,16 @@ def test(model, epoch, device, test_loader, run_name):
     RESULTS_TRAIN.to_csv(os.path.join(save_path, "valid.csv"))
 
 
-def go(run_name, batchsize=100, epochs=50, out_dir="result", no_cuda=False):
+@gin.configurable
+def get_args(batchsize=100, epochs=50, out_dir="result", no_cuda=False):
+    return batchsize, epochs, out_dir, no_cuda
+
+
+def go(run_name):
 
     gin.parse_config_file(os.path.join("cfg", run_name + ".gin"))
+
+    batchsize, epochs, out_dir, no_cuda = get_args()
 
     transform_test = transforms.Compose(
         [transforms.ToTensor(), transforms.Normalize((0.1307,), (0.3081,))]
