@@ -369,7 +369,7 @@ def test(model, epoch, device, test_loader, run_name):
     )
     save_path = os.path.join("logs", run_name)
     os.makedirs(save_path, exist_ok=True)
-    RESULTS_TRAIN.to_csv(os.path.join(save_path, "valid.csv"))
+    RESULTS_VALID.to_csv(os.path.join(save_path, "valid.csv"))
 
 
 @gin.configurable
