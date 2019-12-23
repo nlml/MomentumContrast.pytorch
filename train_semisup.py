@@ -221,6 +221,7 @@ def train(
     moco_weight=0.0,
     gamma_queue=0.0,
     norm_logits_to_walker=True,
+    walker_temp=1.0
 ):
     model_q.train()
     total_loss, total_loss_moco, total_loss_sup, total_loss_entmin, total_loss_walker = (
