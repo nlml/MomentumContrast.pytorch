@@ -218,8 +218,6 @@ def train(
         [0] * 5
     )
 
-    print(sup_weight, walk_weight, detached)
-
     l = np.ceil(len(train_loader.dataset) / train_loader.batch_size)
     for batch_idx, (data, target) in tqdm(enumerate(train_loader), total=l):
 
@@ -378,8 +376,11 @@ def get_args(batchsize=100, epochs=50, out_dir="result", no_cuda=False):
 
 
 def go(run_name):
-
-    gin.parse_config_file(os.path.join("cfg", run_name + ".gin"))
+    print(run_name)
+    cfg_path = os.path.join("cfg", run_name + ".gin")
+    gin.parse_config_file(cfg_path)
+    print("Parsed config:")
+    print(cfg_path)
 
     batchsize, epochs, out_dir, no_cuda = get_args()
 
