@@ -11,6 +11,7 @@ from torchvision import datasets, transforms
 from PIL import Image
 import numpy as np
 from network import Net, Net2, MLP, WrapNet
+import pandas as pd
 
 
 archi_dict = {"Net": Net, "Net2": Net2, "MLP": MLP}
@@ -20,24 +21,49 @@ datasets_dict = {
     "fashion-mnist": datasets.FashionMNIST,
 }
 
+train_cols = ["loss", "loss_moco", "loss_sup", "loss_entmin", "loss_walker"]
+valid_cols = ["loss", "accuracy"]
+RESULTS_TRAIN = pd.DataFrame(np.ones([0, len(train_cols)]), columns=train_cols)
+RESULTS_VALID = pd.DataFrame(np.ones([0, len(valid_cols)]), columns=valid_cols)
+
+
+def get_transform_sup():
+    return transforms.Compose(
+        [
+            transforms.RandomRotation(20),
+            transforms.RandomResizedCrop(
+                28, scale=(0.9, 1.1), ratio=(0.9, 1.1), interpolation=2
+            ),
+            transforms.ToTensor(),
+            transforms.Normalize((0.1307,), (0.3081,)),
+        ]
+    )
+
 
 @gin.configurable
 def get_dataset(name):
     return datasets_dict[name]
 
 
-def random_subset_of_class_idxs(c):
-    where = torch.where(train_mnist_sup.targets == c)[0]
+@gin.configurable
+def get_network(archi):
+    return WrapNet(archi_dict[archi]())
+
+
+def random_subset_of_class_idxs(rng, targets, c):
+    where = torch.where(targets == c)[0]
     return rng.choice(where.numpy(), 10)
 
 
 @gin.configurable
 def sup_loader(sup_batch_size, sup_loader_seed):
-    if sup_loader_seed > 0:
-        assert 0, "test for gin"
+    train_mnist_sup = get_dataset()(
+        "./", train=True, download=True, transform=get_transform_sup()
+    )
     rng = np.random.RandomState(sup_loader_seed)
+    targs = train_mnist_sup.targets
     sel = np.concatenate(
-        [random_subset_of_class_idxs(c) for c in range(10)], 0
+        [random_subset_of_class_idxs(rng, targs, c) for c in range(10)], 0
     )
     train_mnist_sup.data = train_mnist_sup.data[sel]
     train_mnist_sup.targets = train_mnist_sup.targets[sel]
@@ -46,7 +72,7 @@ def sup_loader(sup_batch_size, sup_loader_seed):
     )
 
 
-def get_sup_batch():
+def get_sup_batch(train_loader_sup):
     try:
         x = next(train_loader_sup.iter)
     except StopIteration:
@@ -111,9 +137,7 @@ def _get_p_a_b(a, b):
     return p_ab, match_ab
 
 
-def calc_walker_loss(
-    a, b, p_target, gamma=0.0, visit_weight=0.0, norm=False
-):
+def calc_walker_loss(a, b, p_target, gamma=0.0, visit_weight=0.0, norm=False):
     if norm:
         a, b = [F.normalize(i, 1) for i in [a, b]]
     p_ab, match_ab = _get_p_a_b(a, b)
@@ -165,10 +189,13 @@ def calc_entmin_loss(logits):
 
 @gin.configurable
 def train(
+    run_name,
     model_q,
     model_k,
     device,
     train_loader,
+    train_loader_sup,
+    sup_loss_fn,
     queue,
     optimizer,
     epoch,
@@ -184,15 +211,22 @@ def train(
     gamma_queue=0.0,
     norm_logits_to_walker=True,
 ):
+    global RESULTS_TRAIN
     model_q.train()
-    total_loss = 0
+    total_loss, total_loss_moco, total_loss_sup, total_loss_entmin, total_loss_walker = (
+        [0] * 5
+    )
 
     print(sup_weight, walk_weight, detached)
 
     l = np.ceil(len(train_loader.dataset) / train_loader.batch_size)
     for batch_idx, (data, target) in tqdm(enumerate(train_loader), total=l):
 
-        loss = loss_moco = loss_sup = loss_walker = loss_entmin = 0.0
+        loss = (
+            loss_moco
+        ) = loss_sup = loss_walker = loss_entmin = torch.FloatTensor([0.0]).to(
+            device
+        )
 
         x_q = data[0]
         x_k = data[1]
@@ -214,13 +248,12 @@ def train(
 
             labels = torch.zeros(N, dtype=torch.long)
             labels = labels.to(device)
-            
+
             loss_moco = cross_entropy_loss(logits / temp, labels)
             loss += loss_moco * moco_weight
-            loss_moco = loss_moco.item()
 
         if sup_weight > 0.0:
-            x_sup, y_sup = get_sup_batch()
+            x_sup, y_sup = get_sup_batch(train_loader_sup)
             x_sup, y_sup = x_sup.to(device), y_sup.to(device)
 
             s, pred_sup = model_q(x_sup, sup=True, detached=detached)
@@ -243,14 +276,14 @@ def train(
                         equality_matrix,
                         gamma=gamma_queue,
                         visit_weight=visit_weight_queue,
-                        norm=norm_logits_to_walker
+                        norm=norm_logits_to_walker,
                     )
                 loss_walker += calc_walker_loss(
                     s,
                     q,
                     equality_matrix,
                     visit_weight=visit_weight,
-                    norm=norm_logits_to_walker
+                    norm=norm_logits_to_walker,
                 )
                 loss += walk_weight * loss_walker
 
@@ -259,23 +292,50 @@ def train(
         optimizer.step()
 
         total_loss += loss.item()
+        total_loss_moco += loss_moco.item()
+        total_loss_sup += loss_sup.item()
+        total_loss_entmin += loss_entmin.item()
+        total_loss_walker += loss_walker.item()
 
         if moco_weight > 0.0:
             momentum_update(model_q, model_k)
 
             queue = queue_data(queue, k)
             queue = dequeue_data(queue)
+        break
 
-    total_loss /= len(train_loader.dataset)
+    metrics = np.array(
+        [
+            i / len(train_loader.dataset)
+            for i in [
+                total_loss,
+                total_loss_moco,
+                total_loss_sup,
+                total_loss_entmin,
+                total_loss_walker,
+            ]
+        ]
+    )
 
     print(
-        "Train Epoch: {} \tLoss: {:.6f} \tMoco: {:.6f} \tSup {:.6f} \tWalk {:.6f}".format(
-            epoch, total_loss, loss_moco, loss_sup, loss_walker
+        "Train Epoch: {} | Loss: {:.6f} | Moco: {:.6f} | Sup {:.6f} | Entmin {:.6f} | Walk {:.6f}".format(
+            epoch, metrics[0], metrics[1], metrics[2], metrics[3], metrics[4]
         )
     )
 
+    RESULTS_TRAIN = pd.concat(
+        [
+            RESULTS_TRAIN,
+            pd.DataFrame(metrics[None, :], columns=train_cols, index=[epoch]),
+        ]
+    )
+    save_path = os.path.join("logs", run_name)
+    os.makedirs(save_path, exist_ok=True)
+    RESULTS_TRAIN.to_csv(os.path.join(save_path, "train.csv"))
 
-def test(args, model, device, test_loader):
+
+def test(model, epoch, device, test_loader, run_name):
+    global RESULTS_VALID
     model.eval()
     test_loss = 0
     correct = 0
@@ -292,37 +352,31 @@ def test(args, model, device, test_loader):
             correct += pred.eq(target.view_as(pred)).sum().item()
 
     test_loss /= len(test_loader.dataset)
+    test_accu = correct / len(test_loader.dataset)
 
     print(
         "\nTest set: Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n".format(
-            test_loss,
-            correct,
-            len(test_loader.dataset),
-            100.0 * correct / len(test_loader.dataset),
+            test_loss, correct, len(test_loader.dataset), 100.0 * test_accu
         )
     )
+    metrics = np.array([test_loss, test_accu])
+    RESULTS_VALID = pd.concat(
+        [
+            RESULTS_VALID,
+            pd.DataFrame(metrics[None, :], columns=valid_cols, index=[epoch]),
+        ]
+    )
+    save_path = os.path.join("logs", run_name)
+    os.makedirs(save_path, exist_ok=True)
+    RESULTS_TRAIN.to_csv(os.path.join(save_path, "valid.csv"))
 
 
 def go(run_name, batchsize=100, epochs=50, out_dir="result", no_cuda=False):
 
     gin.parse_config_file(os.path.join("cfg", run_name + ".gin"))
 
-    transform_sup = transforms.Compose(
-        [
-            transforms.RandomRotation(20),
-            transforms.RandomResizedCrop(
-                28, scale=(0.9, 1.1), ratio=(0.9, 1.1), interpolation=2
-            ),
-            transforms.ToTensor(),
-            transforms.Normalize((0.1307,), (0.3081,)),
-        ]
-    )
-
     transform_test = transforms.Compose(
         [transforms.ToTensor(), transforms.Normalize((0.1307,), (0.3081,))]
-    )
-    train_mnist_sup = get_dataset()(
-        "./", train=True, download=True, transform=transform_sup
     )
 
     train_loader_sup = sup_loader()
@@ -346,8 +400,10 @@ def go(run_name, batchsize=100, epochs=50, out_dir="result", no_cuda=False):
         ]
     )
 
-    train_mnist = DATASET("./", train=True, download=True, transform=transform)
-    test_mnist = DATASET(
+    train_mnist = get_dataset()(
+        "./", train=True, download=True, transform=transform
+    )
+    test_mnist = get_dataset()(
         "./", train=False, download=True, transform=transform_test
     )
 
@@ -358,10 +414,6 @@ def go(run_name, batchsize=100, epochs=50, out_dir="result", no_cuda=False):
         test_mnist, batch_size=batchsize, shuffle=True, **kwargs
     )
 
-    @gin.configurable
-    def get_network(archi):
-        return WrapNet(archi_dict[archi]())
-
     model_q = get_network().to(device)
     model_k = get_network().to(device)
 
@@ -371,11 +423,23 @@ def go(run_name, batchsize=100, epochs=50, out_dir="result", no_cuda=False):
     queue = initialize_queue(model_k, device, train_loader)
 
     for epoch in range(1, epochs + 1):
-        train(model_q, model_k, device, train_loader, queue, optimizer, epoch)
-        test(args, model_q, device, test_loader)
+        train(
+            run_name,
+            model_q,
+            model_k,
+            device,
+            train_loader,
+            train_loader_sup,
+            sup_loss_fn,
+            queue,
+            optimizer,
+            epoch,
+        )
+        test(model_q, epoch, device, test_loader, run_name)
 
     os.makedirs(out_dir, exist_ok=True)
     torch.save(model_q.state_dict(), os.path.join(out_dir, "model.pth"))
+
 
 assert len(sys.argv) == 2
 go(sys.argv[1])

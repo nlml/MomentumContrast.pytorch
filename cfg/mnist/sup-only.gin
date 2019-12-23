@@ -10,5 +10,5 @@ train.walk_queue_weight = 0.0
 train.gamma_queue = 1.0
 train.norm_logits_to_walker = True
 sup_loader.sup_batch_size = 100
-sup_loader.sup_loader_seed = 2
+sup_loader.sup_loader_seed = 1
 momentum_update.beta = 0.99
