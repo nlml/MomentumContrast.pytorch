@@ -10,14 +10,17 @@ class MLP(nn.Module):
         mlp_layers = []
         for s_old, s in zip(self.layer_sizes[:-1], self.layer_sizes[1:]):
             mlp_layers += [
-                nn.Linear(s_old, s, bias=False),
+                nn.Linear(s_old, s, bias=True),
                 nn.ReLU(),
-                nn.BatchNorm1d(s)
+                nn.BatchNorm1d(s),
+                nn.Dropout(0.1)
             ]
+        self.drop_inp = nn.Dropout(0.2)
         self.mlp = nn.Sequential(*mlp_layers)
 
     def forward(self, x):
         x = x.view(x.shape[0], -1)
+        x = self.drop_inp(x)
         x = self.mlp(x)
         return x
 
