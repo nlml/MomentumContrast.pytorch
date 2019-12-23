@@ -1,3 +1,5 @@
+import sys
+import gin
 from tqdm import tqdm
 import os
 import argparse
@@ -8,56 +10,20 @@ import torch.optim as optim
 from torchvision import datasets, transforms
 from PIL import Image
 import numpy as np
-
 from network import Net, Net2, MLP, WrapNet
 
-transform_sup = transforms.Compose(
-    [
-        transforms.RandomRotation(20),
-        transforms.RandomResizedCrop(
-            28, scale=(0.9, 1.1), ratio=(0.9, 1.1), interpolation=2
-        ),
-        transforms.ToTensor(),
-        transforms.Normalize((0.1307,), (0.3081,)),
-    ]
-)
 
-transform_test = transforms.Compose(
-    [transforms.ToTensor(), transforms.Normalize((0.1307,), (0.3081,)),]
-)
+archi_dict = {"Net": Net, "Net2": Net2, "MLP": MLP}
 
-NET = MLP
-SUP_WEIGHT = 1.0
-WALK_WEIGHT = 0.0
-VISIT_WEIGHT = 0.0
-ENTMIN_WEIGHT = 0.0
-SUP_BATCH_SIZE = 100
-WALK_QUEUE_WEIGHT = 0.0
-MOCO_WEIGHT = 1.0
-EMA_BETA = 0.9
-GAMMA_QUEUE = 1.0
-NORM_BB = True
-DATASET = datasets.MNIST
-# DATASET = datasets.FashionMNIST
-print(
-    "SUP_WEIGHT {}, WALK_WEIGHT {}, VISIT_WEIGHT {}, ENTMIN_WEIGHT {}, SUP_BATCH_SIZE {}, WALK_QUEUE_WEIGHT {}, MOCO_WEIGHT {}, EMA_BETA {}, GAMMA_QUEUE {},".format(
-        SUP_WEIGHT,
-        WALK_WEIGHT,
-        VISIT_WEIGHT,
-        ENTMIN_WEIGHT,
-        SUP_BATCH_SIZE,
-        WALK_QUEUE_WEIGHT,
-        MOCO_WEIGHT,
-        EMA_BETA,
-        GAMMA_QUEUE,
-    )
-)
+datasets_dict = {
+    "mnist": datasets.MNIST,
+    "fashion-mnist": datasets.FashionMNIST,
+}
 
 
-train_mnist_sup = DATASET(
-    "./", train=True, download=True, transform=transform_sup
-)
-rng = np.random.RandomState(1)
+@gin.configurable
+def get_dataset(name):
+    return datasets_dict[name]
 
 
 def random_subset_of_class_idxs(c):
@@ -65,15 +31,19 @@ def random_subset_of_class_idxs(c):
     return rng.choice(where.numpy(), 10)
 
 
-sel = np.concatenate([random_subset_of_class_idxs(c) for c in range(10)], 0)
-train_mnist_sup.data = train_mnist_sup.data[sel]
-train_mnist_sup.targets = train_mnist_sup.targets[sel]
-train_loader_sup = torch.utils.data.DataLoader(
-    train_mnist_sup, batch_size=SUP_BATCH_SIZE, shuffle=True
-)
-train_loader_sup.iter = iter(train_loader_sup)
-sup_loss_fn = nn.CrossEntropyLoss().cuda()
-cross_entropy_loss = nn.CrossEntropyLoss().cuda()
+@gin.configurable
+def sup_loader(sup_batch_size, sup_loader_seed):
+    if sup_loader_seed > 0:
+        assert 0, "test for gin"
+    rng = np.random.RandomState(sup_loader_seed)
+    sel = np.concatenate(
+        [random_subset_of_class_idxs(c) for c in range(10)], 0
+    )
+    train_mnist_sup.data = train_mnist_sup.data[sel]
+    train_mnist_sup.targets = train_mnist_sup.targets[sel]
+    return torch.utils.data.DataLoader(
+        train_mnist_sup, batch_size=sup_batch_size, shuffle=True
+    )
 
 
 def get_sup_batch():
@@ -98,7 +68,8 @@ class DuplicatedCompose(object):
         return img1, img2
 
 
-def momentum_update(model_q, model_k, beta=EMA_BETA):
+@gin.configurable
+def momentum_update(model_q, model_k, beta):
     param_k = model_k.state_dict()
     param_q = model_q.named_parameters()
     for n, q in param_q:
@@ -125,26 +96,12 @@ def initialize_queue(model_k, device, train_loader):
     for batch_idx, (data, target) in enumerate(train_loader):
         x_k = data[1]
         x_k = x_k.to(device)
-        k = model_k(x_k)
+        k = F.normalize(model_k(x_k), 1)
         k = k.detach()
         queue = queue_data(queue, k)
         queue = dequeue_data(queue, K=10)
         break
     return queue
-
-
-def calc_walker_loss_old(sup_logits, oth_logits, equality_matrix):
-    l_sup = torch.mm(sup_logits, oth_logits.T)
-    # w_sup contains probs
-    p_ab = torch.softmax(l_sup, 1)
-    p_ba = torch.softmax(l_sup.T, 1)
-    p_aba = torch.mm(p_ab, p_ba)
-    # could use multilabel_margin_loss - using cross entropy for now
-    # return F.binary_cross_entropy(w_sup, equality_matrix)
-    loss = (-equality_matrix * torch.log(p_aba + 1e-8)).sum(1).mean()
-    if VISIT_WEIGHT > 0.0:
-        loss += calc_visit_loss(p_ab)
-    return loss
 
 
 def _get_p_a_b(a, b):
@@ -154,7 +111,11 @@ def _get_p_a_b(a, b):
     return p_ab, match_ab
 
 
-def calc_walker_loss(a, b, p_target, gamma=0.0, norm_bb=NORM_BB):
+def calc_walker_loss(
+    a, b, p_target, gamma=0.0, visit_weight=0.0, norm=False
+):
+    if norm:
+        a, b = [F.normalize(i, 1) for i in [a, b]]
     p_ab, match_ab = _get_p_a_b(a, b)
     p_ba = F.softmax(match_ab.T, dim=1)
     # equality_matrix = (labels.view([-1, 1]).eq(labels)).float()
@@ -162,13 +123,8 @@ def calc_walker_loss(a, b, p_target, gamma=0.0, norm_bb=NORM_BB):
 
     if gamma > 0.0:  # Learning by infinite association
         match_ba = torch.t(match_ab)
-        
-        if norm_bb:
-            b_normed = F.normalize(b, 1)
-            match_bb = torch.matmul(b_normed, torch.t(b_normed))
-        else:
-            match_bb = torch.matmul(b, torch.t(b))
-        
+        match_bb = torch.matmul(b, torch.t(b))
+
         add = np.log(gamma) if gamma < 1.0 else 0.0
         match_ab_bb = torch.cat([match_ba, match_bb + add], dim=1)
         p_ba_bb = torch.clamp(F.softmax(match_ab_bb, dim=1), min=1e-8)
@@ -188,7 +144,7 @@ def calc_walker_loss(a, b, p_target, gamma=0.0, norm_bb=NORM_BB):
         # p_aba = torch.matmul(torch.matmul(p_ab, middle), Tbar_ul)
         p_aba = torch.matmul(torch.matmul(p_ab, middle), p_ba)
         ##########################
-        
+
         p_aba /= p_aba.sum(1, keepdim=True)
     else:  # Original learning by association method
         p_ba = F.softmax(torch.t(match_ab), dim=1)
@@ -207,6 +163,7 @@ def calc_entmin_loss(logits):
     return -(p * torch.log(p + 1e-8)).sum(1).mean()
 
 
+@gin.configurable
 def train(
     model_q,
     model_k,
@@ -219,6 +176,13 @@ def train(
     sup_weight=0.0,
     walk_weight=0.0,
     detached=False,
+    visit_weight=0.0,
+    visit_weight_queue=0.0,
+    entmin_weight=0.0,
+    walk_queue_weight=0.0,
+    moco_weight=0.0,
+    gamma_queue=0.0,
+    norm_logits_to_walker=True,
 ):
     model_q.train()
     total_loss = 0
@@ -234,25 +198,26 @@ def train(
         x_k = data[1]
 
         x_q, x_k = x_q.to(device), x_k.to(device)
-        q_pre_norm, pred_q = model_q(x_q, sup=True, detached=detached)
-        q = F.normalize(q_pre_norm)
+        q, pred_q = model_q(x_q, sup=True, detached=detached)
 
-        if MOCO_WEIGHT:
-            k = model_k(x_k)
-            k = k.detach()
+        if moco_weight:
+            with torch.no_grad():
+                k = model_k(x_k)
+            k = F.normalize(k, 1)
 
             N = data[0].shape[0]
             K = queue.shape[0]
-            l_pos = torch.bmm(q.view(N, 1, -1), k.view(N, -1, 1))
-            l_neg = torch.mm(q.view(N, -1), queue.T.view(-1, K))
+            l_pos = torch.bmm(F.normalize(q).view(N, 1, -1), k.view(N, -1, 1))
+            l_neg = torch.mm(F.normalize(q).view(N, -1), queue.T.view(-1, K))
 
             logits = torch.cat([l_pos.view(N, 1), l_neg], dim=1)
 
             labels = torch.zeros(N, dtype=torch.long)
             labels = labels.to(device)
-
-            loss = cross_entropy_loss(logits / temp, labels) * MOCO_WEIGHT
-            loss_moco = loss.item()
+            
+            loss_moco = cross_entropy_loss(logits / temp, labels)
+            loss += loss_moco * moco_weight
+            loss_moco = loss_moco.item()
 
         if sup_weight > 0.0:
             x_sup, y_sup = get_sup_batch()
@@ -266,17 +231,28 @@ def train(
             loss_sup = sup_loss_fn(pred_sup, y_sup)
             loss += sup_weight * loss_sup
 
-            if ENTMIN_WEIGHT > 0.0:
+            if entmin_weight > 0.0:
                 loss_entmin = calc_entmin_loss(pred_q)
-                loss += ENTMIN_WEIGHT * loss_entmin
+                loss += entmin_weight * loss_entmin
 
             if walk_weight > 0.0:
-                if WALK_QUEUE_WEIGHT > 0.0:
-                    loss_walker += WALK_QUEUE_WEIGHT * calc_walker_loss(
-                        s, queue, equality_matrix, gamma=GAMMA_QUEUE
+                if walk_queue_weight > 0.0:
+                    loss_walker += walk_queue_weight * calc_walker_loss(
+                        s,
+                        queue,
+                        equality_matrix,
+                        gamma=gamma_queue,
+                        visit_weight=visit_weight_queue,
+                        norm=norm_logits_to_walker
                     )
-                loss_walker += calc_walker_loss(s, q_pre_norm, equality_matrix)
-                loss += walk_weight * sup_weight * loss_walker
+                loss_walker += calc_walker_loss(
+                    s,
+                    q,
+                    equality_matrix,
+                    visit_weight=visit_weight,
+                    norm=norm_logits_to_walker
+                )
+                loss += walk_weight * loss_walker
 
         optimizer.zero_grad()
         loss.backward()
@@ -284,7 +260,7 @@ def train(
 
         total_loss += loss.item()
 
-        if MOCO_WEIGHT:
+        if moco_weight > 0.0:
             momentum_update(model_q, model_k)
 
             queue = queue_data(queue, k)
@@ -327,99 +303,79 @@ def test(args, model, device, test_loader):
     )
 
 
-parser = argparse.ArgumentParser(description="MoCo example: MNIST")
-parser.add_argument(
-    "--batchsize",
-    "-b",
-    type=int,
-    default=100,
-    help="Number of images in each mini-batch",
-)
-parser.add_argument(
-    "--epochs",
-    "-e",
-    type=int,
-    default=100,
-    help="Number of sweeps over the dataset to train",
-)
-parser.add_argument(
-    "--out", "-o", default="result", help="Directory to output the result"
-)
-parser.add_argument(
-    "--no-cuda",
-    action="store_true",
-    default=False,
-    help="disables CUDA training",
-)
-args = parser.parse_args()
+def go(run_name, batchsize=100, epochs=50, out_dir="result", no_cuda=False):
 
-batchsize = args.batchsize
-epochs = args.epochs
-out_dir = args.out
+    gin.parse_config_file(os.path.join("cfg", run_name + ".gin"))
 
-use_cuda = not args.no_cuda and torch.cuda.is_available()
-device = torch.device("cuda" if use_cuda else "cpu")
-
-kwargs = {"num_workers": 4, "pin_memory": True}
-
-transform = DuplicatedCompose(
-    [
-        transforms.RandomRotation(20),
-        transforms.RandomResizedCrop(
-            28, scale=(0.9, 1.1), ratio=(0.9, 1.1), interpolation=2
-        ),
-        transforms.ToTensor(),
-        transforms.Normalize((0.1307,), (0.3081,)),
-    ]
-)
-
-train_mnist = DATASET("./", train=True, download=True, transform=transform)
-test_mnist = DATASET(
-    "./", train=False, download=True, transform=transform_test
-)
-
-train_loader = torch.utils.data.DataLoader(
-    train_mnist, batch_size=batchsize, shuffle=True, **kwargs
-)
-test_loader = torch.utils.data.DataLoader(
-    test_mnist, batch_size=batchsize, shuffle=True, **kwargs
-)
-
-model_q = WrapNet(NET()).to(device)
-model_k = WrapNet(NET()).to(device)
-
-# sd = torch.load("pretrained/model.pth")
-# model_q.load_state_dict(sd["model"])
-# model_k.load_state_dict(sd["model_k"])
-
-optimizer = optim.SGD(
-    model_q.parameters(), lr=0.001, weight_decay=1e-3, momentum=0.9
-)
-queue = initialize_queue(model_k, device, train_loader)
-
-# sup_weight_dict = [10.0] * 40 + np.linspace(0.01, SUP_WEIGHT, 10).tolist() + [SUP_WEIGHT] * 1000
-# walk_weight_dict = [0.0] * 40 + np.linspace(0.01, WALK_WEIGHT, 10).tolist() + [WALK_WEIGHT] * 1000
-# detached_dict = [True] * 40 + [False] * 1000
-
-sup_weight_dict = [SUP_WEIGHT] * 1000
-walk_weight_dict = [WALK_WEIGHT] * 1000
-detached_dict = [False] * 1000
-
-# test(args, model_q, device, test_loader)
-for epoch in range(1, epochs + 1):
-    train(
-        model_q,
-        model_k,
-        device,
-        train_loader,
-        queue,
-        optimizer,
-        epoch,
-        sup_weight=sup_weight_dict[epoch],
-        walk_weight=walk_weight_dict[epoch],
-        detached=detached_dict[epoch],
+    transform_sup = transforms.Compose(
+        [
+            transforms.RandomRotation(20),
+            transforms.RandomResizedCrop(
+                28, scale=(0.9, 1.1), ratio=(0.9, 1.1), interpolation=2
+            ),
+            transforms.ToTensor(),
+            transforms.Normalize((0.1307,), (0.3081,)),
+        ]
     )
-    test(args, model_q, device, test_loader)
 
-os.makedirs(out_dir, exist_ok=True)
-torch.save(model_q.state_dict(), os.path.join(out_dir, "model.pth"))
+    transform_test = transforms.Compose(
+        [transforms.ToTensor(), transforms.Normalize((0.1307,), (0.3081,))]
+    )
+    train_mnist_sup = get_dataset()(
+        "./", train=True, download=True, transform=transform_sup
+    )
+
+    train_loader_sup = sup_loader()
+    train_loader_sup.iter = iter(train_loader_sup)
+    sup_loss_fn = nn.CrossEntropyLoss().cuda()
+    cross_entropy_loss = nn.CrossEntropyLoss().cuda()
+
+    use_cuda = not no_cuda and torch.cuda.is_available()
+    device = torch.device("cuda" if use_cuda else "cpu")
+
+    kwargs = {"num_workers": 4, "pin_memory": True}
+
+    transform = DuplicatedCompose(
+        [
+            transforms.RandomRotation(20),
+            transforms.RandomResizedCrop(
+                28, scale=(0.9, 1.1), ratio=(0.9, 1.1), interpolation=2
+            ),
+            transforms.ToTensor(),
+            transforms.Normalize((0.1307,), (0.3081,)),
+        ]
+    )
+
+    train_mnist = DATASET("./", train=True, download=True, transform=transform)
+    test_mnist = DATASET(
+        "./", train=False, download=True, transform=transform_test
+    )
+
+    train_loader = torch.utils.data.DataLoader(
+        train_mnist, batch_size=batchsize, shuffle=True, **kwargs
+    )
+    test_loader = torch.utils.data.DataLoader(
+        test_mnist, batch_size=batchsize, shuffle=True, **kwargs
+    )
+
+    @gin.configurable
+    def get_network(archi):
+        return WrapNet(archi_dict[archi]())
+
+    model_q = get_network().to(device)
+    model_k = get_network().to(device)
+
+    optimizer = optim.SGD(
+        model_q.parameters(), lr=0.001, weight_decay=1e-3, momentum=0.9
+    )
+    queue = initialize_queue(model_k, device, train_loader)
+
+    for epoch in range(1, epochs + 1):
+        train(model_q, model_k, device, train_loader, queue, optimizer, epoch)
+        test(args, model_q, device, test_loader)
+
+    os.makedirs(out_dir, exist_ok=True)
+    torch.save(model_q.state_dict(), os.path.join(out_dir, "model.pth"))
+
+assert len(sys.argv) == 2
+go(sys.argv[1])

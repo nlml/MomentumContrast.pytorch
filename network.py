@@ -4,7 +4,7 @@ import torch.nn.functional as F
 
 
 class MLP(nn.Module):
-    def __init__(self, layer_sizes = [784, 1000, 500, 250, 250, 128]):
+    def __init__(self, layer_sizes=[784, 1000, 500, 250, 250, 128]):
         super(MLP, self).__init__()
         self.layer_sizes = layer_sizes
         mlp_layers = []
@@ -13,7 +13,7 @@ class MLP(nn.Module):
                 nn.Linear(s_old, s, bias=True),
                 nn.ReLU(),
                 nn.BatchNorm1d(s),
-                nn.Dropout(0.1)
+                nn.Dropout(0.1),
             ]
         self.drop_inp = nn.Dropout(0.2)
         self.mlp = nn.Sequential(*mlp_layers)
@@ -23,6 +23,7 @@ class MLP(nn.Module):
         x = self.drop_inp(x)
         x = self.mlp(x)
         return x
+
 
 class Net2(nn.Module):
     def __init__(self):
