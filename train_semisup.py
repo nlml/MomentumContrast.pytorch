@@ -1,3 +1,4 @@
+import time
 import sys
 import gin
 from tqdm import tqdm
@@ -138,8 +139,10 @@ def _get_p_a_b(a, b):
 
 
 def calc_walker_loss(
-    a, b, p_target, gamma=0.0, visit_weight=0.0, norm=False, temp=1.0
+    a, b, p_target, gamma=0.0, visit_weight=0.0, norm=False, temp=1.0, inv_lim=1024
 ):
+    if gamma > 0 and b.shape[0] > inv_lim:
+        b = b[torch.randperm(b.shape[0])[:inv_lim]]
     if norm:
         a, b = [F.normalize(i, 1) for i in [a, b]]
     p_ab, match_ab = _get_p_a_b(a, b)
@@ -161,7 +164,8 @@ def calc_walker_loss(
         I = I.cuda() if Tbar_uu.is_cuda else I
 
         ### Middle calculation ###
-        middle = torch.inverse(I - Tbar_uu + 1e-8)
+        with torch.no_grad():
+            middle = torch.inverse(I - Tbar_uu + 1e-8)
         # middle = I
         # for i in range(1, 2):
         #     middle += torch.matrix_power(Tbar_uu, i)
@@ -197,6 +201,7 @@ def update_with_metrics(dfs, train_or_valid, run_name, metrics, epoch):
     save_path = os.path.join("logs", run_name)
     os.makedirs(save_path, exist_ok=True)
     df.to_csv(os.path.join(save_path, f"{train_or_valid}.csv"))
+    dfs[train_or_valid] = df
     return dfs
 
 
@@ -253,7 +258,6 @@ def train(
         if moco_weight > 0.0:
             with torch.no_grad():
                 k = model_k(x_k)
-            # k = F.normalize(k, 1)  # TODO(LS) MAYBE REMOVE THIS AS WASNT THERE BEFORE!
 
             N = data[0].shape[0]
             K = queue.shape[0]
@@ -379,6 +383,10 @@ def get_args(batchsize=100, epochs=50, out_dir="result", no_cuda=False):
 
 
 def go(run_name):
+    if run_name.startswith("cfg/"):
+        run_name = run_name[4:]
+    if run_name.endswith(".gin"):
+        run_name = run_name[:-4]
     print(run_name)
     cfg_path = os.path.join("cfg", run_name + ".gin")
     gin.parse_config_file(cfg_path)
