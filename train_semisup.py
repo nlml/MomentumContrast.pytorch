@@ -137,7 +137,9 @@ def _get_p_a_b(a, b):
     return p_ab, match_ab
 
 
-def calc_walker_loss(a, b, p_target, gamma=0.0, visit_weight=0.0, norm=False, temp=1.0):
+def calc_walker_loss(
+    a, b, p_target, gamma=0.0, visit_weight=0.0, norm=False, temp=1.0
+):
     if norm:
         a, b = [F.normalize(i, 1) for i in [a, b]]
     p_ab, match_ab = _get_p_a_b(a, b)
@@ -221,12 +223,17 @@ def train(
     moco_weight=0.0,
     gamma_queue=0.0,
     norm_logits_to_walker=True,
-    walker_temp=1.0
+    walker_temp=1.0,
+    normalise_queue_to_walker=False,
 ):
     model_q.train()
-    total_loss, total_loss_moco, total_loss_sup, total_loss_entmin, total_loss_walker = (
-        [0] * 5
-    )
+    (
+        total_loss,
+        total_loss_moco,
+        total_loss_sup,
+        total_loss_entmin,
+        total_loss_walker,
+    ) = [0] * 5
 
     l = np.ceil(len(train_loader.dataset) / train_loader.batch_size)
     for batch_idx, (data, target) in tqdm(enumerate(train_loader), total=l):
@@ -246,7 +253,7 @@ def train(
         if moco_weight > 0.0:
             with torch.no_grad():
                 k = model_k(x_k)
-            k = F.normalize(k, 1)
+            # k = F.normalize(k, 1)  # TODO(LS) MAYBE REMOVE THIS AS WASNT THERE BEFORE!
 
             N = data[0].shape[0]
             K = queue.shape[0]
@@ -282,12 +289,14 @@ def train(
                     assert moco_weight > 0, "need moco for queue walker loss"
                     loss_walker += walk_queue_weight * calc_walker_loss(
                         s,
-                        queue,
+                        F.normalize(queue, 1)
+                        if normalise_queue_to_walker
+                        else queue,
                         equality_matrix,
                         gamma=gamma_queue,
                         visit_weight=visit_weight_queue,
                         norm=norm_logits_to_walker,
-                        temp=walker_temp
+                        temp=walker_temp,
                     )
                 loss_walker += calc_walker_loss(
                     s,
@@ -295,7 +304,7 @@ def train(
                     equality_matrix,
                     visit_weight=visit_weight,
                     norm=norm_logits_to_walker,
-                    temp=walker_temp
+                    temp=walker_temp,
                 )
                 loss += walk_weight * loss_walker
 
