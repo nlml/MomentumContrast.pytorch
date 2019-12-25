@@ -116,8 +116,8 @@ def dequeue_data(data, K=4096):
         return data
 
 
-def initialize_queue(model_k, device, train_loader):
-    queue = torch.zeros((0, 128), dtype=torch.float)
+def initialize_queue(model_k, device, train_loader, latent_dim):
+    queue = torch.zeros((0, latent_dim), dtype=torch.float)
     queue = queue.to(device)
 
     for batch_idx, (data, target) in enumerate(train_loader):
@@ -139,7 +139,14 @@ def _get_p_a_b(a, b):
 
 
 def calc_walker_loss(
-    a, b, p_target, gamma=0.0, visit_weight=0.0, norm=False, temp=1.0, inv_lim=1024
+    a,
+    b,
+    p_target,
+    gamma=0.0,
+    visit_weight=0.0,
+    norm=False,
+    temp=1.0,
+    inv_lim=1024,
 ):
     if gamma > 0 and b.shape[0] > inv_lim:
         b = b[torch.randperm(b.shape[0])[:inv_lim]]
@@ -378,8 +385,10 @@ def test(dfs, model, epoch, device, test_loader, run_name):
 
 
 @gin.configurable
-def get_args(batchsize=100, epochs=50, out_dir="result", no_cuda=False):
-    return batchsize, epochs, out_dir, no_cuda
+def get_args(
+    batchsize=100, epochs=50, out_dir="result", no_cuda=False, latent_dim=128
+):
+    return batchsize, epochs, out_dir, no_cuda, latent_dim
 
 
 def go(run_name):
@@ -393,7 +402,7 @@ def go(run_name):
     print("Parsed config:")
     print(cfg_path)
 
-    batchsize, epochs, out_dir, no_cuda = get_args()
+    batchsize, epochs, out_dir, no_cuda, latent_dim = get_args()
 
     transform_test = transforms.Compose(
         [transforms.ToTensor(), transforms.Normalize((0.1307,), (0.3081,))]
@@ -438,7 +447,7 @@ def go(run_name):
     optimizer = optim.SGD(
         model_q.parameters(), lr=0.001, weight_decay=1e-3, momentum=0.9
     )
-    queue = initialize_queue(model_k, device, train_loader)
+    queue = initialize_queue(model_k, device, train_loader, latent_dim)
 
     dfs = {
         "train": pd.DataFrame(

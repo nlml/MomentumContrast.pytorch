@@ -19,4 +19,4 @@ momentum_update.beta = 0.99
 sup_loader.sup_batch_size = 100
 sup_loader.sup_loader_seed = 1
 
-get_args.epochs = 50
+get_args.epochs = 150

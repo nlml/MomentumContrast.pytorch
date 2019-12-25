@@ -4,9 +4,10 @@ import torch.nn.functional as F
 
 
 class MLP(nn.Module):
-    def __init__(self, layer_sizes=[784, 1000, 500, 250, 250, 128]):
+    def __init__(self, latent_dim=128, layer_sizes=[784, 1000, 500, 250, 250]):
         super(MLP, self).__init__()
-        self.layer_sizes = layer_sizes
+        self.latent_dim = latent_dim
+        self.layer_sizes = layer_sizes + [latent_dim]
         mlp_layers = []
         for s_old, s in zip(self.layer_sizes[:-1], self.layer_sizes[1:]):
             mlp_layers += [
@@ -26,8 +27,9 @@ class MLP(nn.Module):
 
 
 class Net2(nn.Module):
-    def __init__(self):
+    def __init__(self, latent_dim=128):
         super(Net2, self).__init__()
+        self.latent_dim = latent_dim
 
         s_old = 1
         s = 32
@@ -43,7 +45,7 @@ class Net2(nn.Module):
         self.conv6 = nn.Conv2d(s, s, 3, 1, padding=1)
         s_old = s
 
-        self.fc1 = nn.Linear(1152, 128)
+        self.fc1 = nn.Linear(1152, self.latent_dim)
 
     def forward(self, x):
         x = self.conv1(x)
@@ -71,14 +73,15 @@ class Net2(nn.Module):
 
 
 class Net(nn.Module):
-    def __init__(self, sup_out=False):
+    def __init__(self, sup_out=False, latent_dim=128):
         super(Net, self).__init__()
+        self.latent_dim = latent_dim
         self.sup_out = sup_out
         self.conv1 = nn.Conv2d(1, 32, 3, 1)
         self.conv2 = nn.Conv2d(32, 64, 3, 1)
-        self.fc1 = nn.Linear(9216, 128)
+        self.fc1 = nn.Linear(9216, self.latent_dim)
         if self.sup_out:
-            self.fc_sup = nn.Linear(128, 10)
+            self.fc_sup = nn.Linear(self.latent_dim, 10)
 
     def features(self, x):
         x = self.conv1(x)
@@ -101,10 +104,13 @@ class Net(nn.Module):
 
 
 class WrapNet(nn.Module):
-    def __init__(self, features):
+    def __init__(self, features, latent_dim=None):
         super(WrapNet, self).__init__()
         self.features = features
-        self.fc_sup = nn.Linear(128, 10)
+        self.latent_dim = (
+            self.features.latent_dim if latent_dim is None else latent_dim
+        )
+        self.fc_sup = nn.Linear(self.latent_dim, 10)
 
     def forward(self, x, sup=False, detached=False):
         if detached:
