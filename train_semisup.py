@@ -238,7 +238,8 @@ def train(
     walker_temp=1.0,
     normalise_queue_to_walker=False,
     random_inverse_subsampling=False,
-    use_latest_for_inv=False
+    use_latest_for_inv=False,
+    inv_lim=1024
 ):
     model_q.train()
     (
@@ -312,6 +313,7 @@ def train(
                         temp=walker_temp,
                         random_inverse_subsampling=random_inverse_subsampling,
                         use_latest_for_inv=use_latest_for_inv,
+                        inv_lim=inv_lim,
                     )
                 loss_walker += calc_walker_loss(
                     s,
@@ -322,6 +324,7 @@ def train(
                     temp=walker_temp,
                     random_inverse_subsampling=random_inverse_subsampling,
                     use_latest_for_inv=use_latest_for_inv,
+                    inv_lim=inv_lim,
                 )
                 loss += walk_weight * loss_walker
 
