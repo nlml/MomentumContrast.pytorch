@@ -147,9 +147,13 @@ def calc_walker_loss(
     norm=False,
     temp=1.0,
     inv_lim=1024,
+    random_inverse_subsampling=False
 ):
     if gamma > 0 and b.shape[0] > inv_lim:
-        b = b[torch.randperm(b.shape[0])[:inv_lim]]
+        if random_inverse_subsampling:
+            b = b[torch.randperm(b.shape[0])[:inv_lim]]
+        else:
+            b = b[:inv_lim]
     if norm:
         a, b = [F.normalize(i, 1) for i in [a, b]]
     p_ab, match_ab = _get_p_a_b(a, b)
@@ -229,6 +233,7 @@ def train(
     norm_logits_to_walker=True,
     walker_temp=1.0,
     normalise_queue_to_walker=False,
+    random_inverse_subsampling=False
 ):
     model_q.train()
     (
@@ -300,6 +305,7 @@ def train(
                         visit_weight=visit_weight_queue,
                         norm=norm_logits_to_walker,
                         temp=walker_temp,
+                        random_inverse_subsampling=random_inverse_subsampling
                     )
                 loss_walker += calc_walker_loss(
                     s,
@@ -308,6 +314,7 @@ def train(
                     visit_weight=visit_weight,
                     norm=norm_logits_to_walker,
                     temp=walker_temp,
+                    random_inverse_subsampling=random_inverse_subsampling
                 )
                 loss += walk_weight * loss_walker
 
