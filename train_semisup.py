@@ -239,7 +239,8 @@ def train(
     normalise_queue_to_walker=False,
     random_inverse_subsampling=False,
     use_latest_for_inv=False,
-    inv_lim=1024
+    inv_lim=1024,
+    walk_unsup_weight=1.0,
 ):
     model_q.train()
     (
@@ -315,17 +316,18 @@ def train(
                         use_latest_for_inv=use_latest_for_inv,
                         inv_lim=inv_lim,
                     )
-                loss_walker += calc_walker_loss(
-                    s,
-                    q,
-                    equality_matrix,
-                    visit_weight=visit_weight,
-                    norm=norm_logits_to_walker,
-                    temp=walker_temp,
-                    random_inverse_subsampling=random_inverse_subsampling,
-                    use_latest_for_inv=use_latest_for_inv,
-                    inv_lim=inv_lim,
-                )
+                if walk_unsup_weight > 0.0:
+                    loss_walker += walk_unsup_weight * calc_walker_loss(
+                        s,
+                        q,
+                        equality_matrix,
+                        visit_weight=visit_weight,
+                        norm=norm_logits_to_walker,
+                        temp=walker_temp,
+                        random_inverse_subsampling=random_inverse_subsampling,
+                        use_latest_for_inv=use_latest_for_inv,
+                        inv_lim=inv_lim,
+                    )
                 loss += walk_weight * loss_walker
 
         optimizer.zero_grad()
