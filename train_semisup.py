@@ -47,8 +47,8 @@ def get_dataset(name):
 
 
 @gin.configurable
-def get_network(archi):
-    return WrapNet(archi_dict[archi]())
+def get_network(archi, latent_dim):
+    return WrapNet(archi_dict[archi](latent_dim=latent_dim))
 
 
 def random_subset_of_class_idxs(rng, targets, c):
@@ -170,19 +170,11 @@ def calc_walker_loss(
         I = torch.eye(M)
         I = I.cuda() if Tbar_uu.is_cuda else I
 
-        ### Middle calculation ###
         with torch.no_grad():
             middle = torch.inverse(I - Tbar_uu + 1e-8)
-        # middle = I
-        # for i in range(1, 2):
-        #     middle += torch.matrix_power(Tbar_uu, i)
-        # middle /= Tbar_uu.sum(1, keepdim=True)
-        # middle = torch.inverse(Tbar_uu + 1e-8)
-        # p_aba = torch.matmul(torch.matmul(p_ab, middle), Tbar_ul)
-        p_aba = torch.matmul(torch.matmul(p_ab, middle), p_ba)
-        ##########################
-
-        p_aba /= p_aba.sum(1, keepdim=True)
+        p_aba = torch.matmul(torch.matmul(p_ab, middle), Tbar_ul)
+        # p_aba = torch.matmul(torch.matmul(p_ab, middle), p_ba)
+        # p_aba /= p_aba.sum(1, keepdim=True)
     else:  # Original learning by association method
         p_ba = F.softmax(torch.t(match_ab) / temp, dim=1)
         p_aba = torch.matmul(p_ab, p_ba)
@@ -441,8 +433,8 @@ def go(run_name):
         test_mnist, batch_size=batchsize, shuffle=True, **kwargs
     )
 
-    model_q = get_network().to(device)
-    model_k = get_network().to(device)
+    model_q = get_network(latent_dim=latent_dim).to(device)
+    model_k = get_network(latent_dim=latent_dim).to(device)
 
     optimizer = optim.SGD(
         model_q.parameters(), lr=0.001, weight_decay=1e-3, momentum=0.9
