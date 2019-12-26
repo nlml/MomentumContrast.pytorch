@@ -29,8 +29,8 @@ class MLP(nn.Module):
         return x
 
 
-def get_conv(s_in, s_out, k, stride, pad, use_bn=False):
-    out = [nn.Conv2d(s_in, s_out, k, stride, padding=pad)]
+def get_conv(s_in, s_out, k, stride, padding, use_bn=False):
+    out = [nn.Conv2d(s_in, s_out, k, stride, padding=padding)]
     out += [nn.ELU()]
     if use_bn:
         out += [nn.BatchNorm2d(s_out)]
