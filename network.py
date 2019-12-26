@@ -59,6 +59,7 @@ class Net2(nn.Module):
         s_old = s
 
         self.fc1 = nn.Linear(1152, self.latent_dim)
+        self.bn1 = nn.BatchNorm1d(self.latent_dim)
 
     def forward(self, x):
         x = self.conv1(x)
@@ -75,6 +76,7 @@ class Net2(nn.Module):
 
         x = torch.flatten(x, 1)
         x = self.fc1(x)
+        x = self.bn1(x)
         return x
         # return F.normalize(x)
 

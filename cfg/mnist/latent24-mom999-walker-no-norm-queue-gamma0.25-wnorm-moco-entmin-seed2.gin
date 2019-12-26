@@ -1,0 +1,23 @@
+get_dataset.name = "mnist"
+get_network.archi = "MLP"
+train.sup_weight = 1.0
+
+train.walk_weight = 10.0
+train.visit_weight = 1.0
+train.norm_logits_to_walker = False
+
+train.walk_queue_weight = 1.0
+train.visit_weight_queue = 1.0
+train.gamma_queue = 0.25
+train.normalise_queue_to_walker = True
+
+train.entmin_weight = 1.0
+
+train.moco_weight = 0.1
+momentum_update.beta = 0.999
+
+sup_loader.sup_batch_size = 100
+sup_loader.sup_loader_seed = 2
+
+get_args.epochs = 150
+get_args.latent_dim = 24
