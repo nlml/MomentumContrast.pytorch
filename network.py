@@ -4,18 +4,21 @@ import torch.nn.functional as F
 
 
 class MLP(nn.Module):
-    def __init__(self, latent_dim=128, layer_sizes=[784, 1000, 500, 250, 250]):
+    def __init__(
+        self,
+        latent_dim=128,
+        use_bn=True,
+        layer_sizes=[784, 1000, 500, 250, 250],
+    ):
         super(MLP, self).__init__()
         self.latent_dim = latent_dim
         self.layer_sizes = layer_sizes + [latent_dim]
         mlp_layers = []
         for s_old, s in zip(self.layer_sizes[:-1], self.layer_sizes[1:]):
-            mlp_layers += [
-                nn.Linear(s_old, s, bias=True),
-                nn.ReLU(),
-                nn.BatchNorm1d(s),
-                nn.Dropout(0.1),
-            ]
+            mlp_layers += [nn.Linear(s_old, s, bias=True), nn.ReLU()]
+            if self.use_bn:
+                mlp_layers += [nn.BatchNorm1d(s)]
+            mlp_layers += nn.Dropout(0.1)
         self.drop_inp = nn.Dropout(0.2)
         self.mlp = nn.Sequential(*mlp_layers)
 
@@ -26,44 +29,47 @@ class MLP(nn.Module):
         return x
 
 
+def get_conv(s_in, s_out, k, stride, pad, use_bn=False):
+    out = [nn.Conv2d(s_in, s_out, k, stride, padding=pad)]
+    out += [nn.ELU()]
+    if use_bn:
+        out += [nn.BatchNorm2d(s_out)]
+    return nn.Sequential(*out)
+
+
 class Net2(nn.Module):
-    def __init__(self, latent_dim=128):
+    def __init__(self, latent_dim=128, use_bn=False):
         super(Net2, self).__init__()
         self.latent_dim = latent_dim
+        self.use_bn = use_bn
 
         s_old = 1
         s = 32
-        self.conv1 = nn.Conv2d(s_old, s, 3, 1, padding=1)
-        self.conv2 = nn.Conv2d(s, s, 3, 1, padding=1)
+        self.conv1 = get_conv(s_old, s, 3, 1, padding=1, use_bn=self.use_bn)
+        self.conv2 = get_conv(s, s, 3, 1, padding=1, use_bn=self.use_bn)
         s_old = s
         s = 64
-        self.conv3 = nn.Conv2d(s_old, s, 3, 1, padding=1)
-        self.conv4 = nn.Conv2d(s, s, 3, 1, padding=1)
+        self.conv3 = get_conv(s_old, s, 3, 1, padding=1, use_bn=self.use_bn)
+        self.conv4 = get_conv(s, s, 3, 1, padding=1, use_bn=self.use_bn)
         s_old = s
         s = 128
-        self.conv5 = nn.Conv2d(s_old, s, 3, 1, padding=1)
-        self.conv6 = nn.Conv2d(s, s, 3, 1, padding=1)
+        self.conv5 = get_conv(s_old, s, 3, 1, padding=1, use_bn=self.use_bn)
+        self.conv6 = get_conv(s, s, 3, 1, padding=1, use_bn=self.use_bn)
         s_old = s
 
         self.fc1 = nn.Linear(1152, self.latent_dim)
 
     def forward(self, x):
         x = self.conv1(x)
-        x = F.elu(x)
         x = self.conv2(x)
-        x = F.elu(x)
         x = F.max_pool2d(x, 2)
 
         x = self.conv3(x)
-        x = F.elu(x)
         x = self.conv4(x)
-        x = F.elu(x)
         x = F.max_pool2d(x, 2)
 
         x = self.conv5(x)
-        x = F.elu(x)
         x = self.conv6(x)
-        x = F.elu(x)
         x = F.max_pool2d(x, 2)
 
         x = torch.flatten(x, 1)

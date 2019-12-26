@@ -47,8 +47,8 @@ def get_dataset(name):
 
 
 @gin.configurable
-def get_network(archi, latent_dim):
-    return WrapNet(archi_dict[archi](latent_dim=latent_dim))
+def get_network(archi, latent_dim, use_bn=True):
+    return WrapNet(archi_dict[archi](latent_dim=latent_dim, use_bn=use_bn))
 
 
 def random_subset_of_class_idxs(rng, targets, c):
@@ -148,7 +148,7 @@ def calc_walker_loss(
     temp=1.0,
     inv_lim=1024,
     random_inverse_subsampling=False,
-    use_latest_for_inv=False
+    use_latest_for_inv=False,
 ):
     if gamma > 0 and b.shape[0] > inv_lim:
         if random_inverse_subsampling:
