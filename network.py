@@ -11,6 +11,7 @@ class MLP(nn.Module):
         layer_sizes=[784, 1000, 500, 250, 250],
     ):
         super(MLP, self).__init__()
+        self.use_bn = use_bn
         self.latent_dim = latent_dim
         self.layer_sizes = layer_sizes + [latent_dim]
         mlp_layers = []
@@ -18,7 +19,7 @@ class MLP(nn.Module):
             mlp_layers += [nn.Linear(s_old, s, bias=True), nn.ReLU()]
             if self.use_bn:
                 mlp_layers += [nn.BatchNorm1d(s)]
-            mlp_layers += nn.Dropout(0.1)
+            mlp_layers += [nn.Dropout(0.1)]
         self.drop_inp = nn.Dropout(0.2)
         self.mlp = nn.Sequential(*mlp_layers)
 
