@@ -142,8 +142,9 @@ def get_p_bb_knn(m_bb, n_neighbours):
     cols = m_bb.argsort(1)[:, -n_neighbours:]
     p_bb = torch.zeros_like(m_bb)
     put = torch.FloatTensor([1 / n_neighbours])
-    rows = torch.arange(p_bb.shape[0]).unsqueeze(1).repeat([1, 3])
-    torch.index_put_(p_bb, (rows, sel), put)
+    print(n_neighbours)
+    rows = torch.arange(p_bb.shape[0]).unsqueeze(1).repeat([1, n_neighbours])
+    torch.index_put_(p_bb, (rows, cols), put)
     return p_bb
 
 
