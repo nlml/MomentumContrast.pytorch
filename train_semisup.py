@@ -138,13 +138,16 @@ def _get_p_a_b(a, b):
     return p_ab, match_ab
 
 
-def get_p_bb_knn(m_bb, n_neighbours):
-    cols = m_bb.argsort(1)[:, -n_neighbours:]
+def get_p_bb_knn(m_bb, n_neighbours, pct=90):
+    s = m_bb.shape[0]
+    now = time.time()
+    # argsort = m_bb.argsort(1)[:, -n_neighbours:]
+    cuts = torch.FloatTensor(np.percentile(m_bb.cpu().numpy(), pct, axis=1))
+    sel = (m_bb > cuts.view(-1, 1))
     p_bb = torch.zeros_like(m_bb)
-    put = torch.FloatTensor([1 / n_neighbours])
-    print(n_neighbours)
-    rows = torch.arange(p_bb.shape[0]).unsqueeze(1).repeat([1, n_neighbours])
-    torch.index_put_(p_bb, (rows, cols), put)
+    # Fill n closest points with equal probability
+    # p_bb[torch.arange(s).unsqueeze(1), argsort] = 1.0 / n_neighbours
+    p_bb[sel] = 1.0 / n_neighbours
     return p_bb
 
 
