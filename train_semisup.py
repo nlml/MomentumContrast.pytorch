@@ -138,6 +138,15 @@ def _get_p_a_b(a, b):
     return p_ab, match_ab
 
 
+def get_p_bb_knn(m_bb, n_neighbours):
+    cols = m_bb.argsort(1)[:, -n_neighbours:]
+    p_bb = torch.zeros_like(m_bb)
+    put = torch.FloatTensor([1 / n_neighbours])
+    rows = torch.arange(p_bb.shape[0]).unsqueeze(1).repeat([1, 3])
+    torch.index_put_(p_bb, (rows, sel), put)
+    return p_bb
+
+
 def calc_walker_loss(
     a,
     b,
@@ -149,6 +158,7 @@ def calc_walker_loss(
     inv_lim=1024,
     random_inverse_subsampling=False,
     use_latest_for_inv=False,
+    neighbours_mode=False
 ):
     if gamma > 0 and b.shape[0] > inv_lim:
         if random_inverse_subsampling:
@@ -166,25 +176,30 @@ def calc_walker_loss(
     # p_target = equality_matrix / equality_matrix.sum(1, keepdim=True)
 
     if gamma > 0.0:  # Learning by infinite association
-        match_ba = torch.t(match_ab)
-        match_bb = torch.matmul(b, torch.t(b))
+        if neighbours_mode:
+            match_bb = torch.matmul(b, torch.t(b))
+            n_neighbours = b.shape[0] // 10  # change 10 to num classes
+            p_bb = get_p_bb_knn(match_bb, n_neighbours)
+            p_aba = torch.matmul(torch.matmul(p_ab, p_bb), p_ba)
+        else:
+            match_ba = torch.t(match_ab)
+            match_bb = torch.matmul(b, torch.t(b))
 
-        add = np.log(gamma) if gamma < 1.0 else 0.0
-        match_ab_bb = torch.cat([match_ba, match_bb + add], dim=1)
-        p_ba_bb = torch.clamp(F.softmax(match_ab_bb / temp, dim=1), min=1e-8)
-        N = a.shape[0]
-        M = b.shape[0]
-        Tbar_ul, Tbar_uu = p_ba_bb[:, :N], p_ba_bb[:, N:]
-        I = torch.eye(M)
-        I = I.cuda() if Tbar_uu.is_cuda else I
+            add = np.log(gamma) if gamma < 1.0 else 0.0
+            match_ab_bb = torch.cat([match_ba, match_bb + add], dim=1)
+            p_ba_bb = torch.clamp(F.softmax(match_ab_bb / temp, dim=1), min=1e-8)
+            N = a.shape[0]
+            M = b.shape[0]
+            Tbar_ul, Tbar_uu = p_ba_bb[:, :N], p_ba_bb[:, N:]
+            I = torch.eye(M)
+            I = I.cuda() if Tbar_uu.is_cuda else I
 
-        with torch.no_grad():
-            middle = torch.inverse(I - Tbar_uu + 1e-8)
-        p_aba = torch.matmul(torch.matmul(p_ab, middle), Tbar_ul)
-        # p_aba = torch.matmul(torch.matmul(p_ab, middle), p_ba)
-        # p_aba /= p_aba.sum(1, keepdim=True)
+            with torch.no_grad():
+                middle = torch.inverse(I - Tbar_uu + 1e-8)
+            p_aba = torch.matmul(torch.matmul(p_ab, middle), Tbar_ul)
+            # p_aba = torch.matmul(torch.matmul(p_ab, middle), p_ba)
+            # p_aba /= p_aba.sum(1, keepdim=True)
     else:  # Original learning by association method
-        p_ba = F.softmax(torch.t(match_ab) / temp, dim=1)
         p_aba = torch.matmul(p_ab, p_ba)
     loss_aba = -(p_target * torch.log(p_aba + 1e-8)).sum(1).mean(0)
     return loss_aba
@@ -241,6 +256,7 @@ def train(
     use_latest_for_inv=False,
     inv_lim=1024,
     walk_unsup_weight=1.0,
+    neighbours_mode=False,
 ):
     model_q.train()
     (
@@ -315,6 +331,7 @@ def train(
                         random_inverse_subsampling=random_inverse_subsampling,
                         use_latest_for_inv=use_latest_for_inv,
                         inv_lim=inv_lim,
+                        neighbours_mode=neighbours_mode
                     )
                 if walk_unsup_weight > 0.0:
                     loss_walker += walk_unsup_weight * calc_walker_loss(
@@ -327,6 +344,7 @@ def train(
                         random_inverse_subsampling=random_inverse_subsampling,
                         use_latest_for_inv=use_latest_for_inv,
                         inv_lim=inv_lim,
+                        neighbours_mode=neighbours_mode
                     )
                 loss += walk_weight * loss_walker
 
