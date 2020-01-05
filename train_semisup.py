@@ -47,8 +47,8 @@ def get_dataset(name):
 
 
 @gin.configurable
-def get_network(archi, latent_dim, use_bn=True):
-    return WrapNet(archi_dict[archi](latent_dim=latent_dim, use_bn=use_bn))
+def get_network(archi, latent_dim, use_bn=True, num_gpus_to_emulate_bn=0):
+    return WrapNet(archi_dict[archi](latent_dim=latent_dim, use_bn=use_bn, num_gpus_to_emulate_bn=num_gpus_to_emulate_bn))
 
 
 def random_subset_of_class_idxs(rng, targets, c):

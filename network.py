@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from bn_multigpuemulate import BatchNorm1dEmulateMultiGPU, BatchNorm2dEmulateMultiGPU
 
 
 class MLP(nn.Module):
@@ -9,16 +10,21 @@ class MLP(nn.Module):
         latent_dim=128,
         use_bn=True,
         layer_sizes=[784, 1000, 500, 250, 250],
+        num_gpus_to_emulate_bn=0
     ):
         super(MLP, self).__init__()
         self.use_bn = use_bn
+        self.num_gpus_to_emulate_bn = num_gpus_to_emulate_bn
         self.latent_dim = latent_dim
         self.layer_sizes = layer_sizes + [latent_dim]
         mlp_layers = []
         for s_old, s in zip(self.layer_sizes[:-1], self.layer_sizes[1:]):
             mlp_layers += [nn.Linear(s_old, s, bias=True), nn.ReLU()]
             if self.use_bn:
-                mlp_layers += [nn.BatchNorm1d(s)]
+                if self.num_gpus_to_emulate_bn:
+                    mlp_layers += [BatchNorm1dEmulateMultiGPU(s, num_gpus_to_emulate_bn)]
+                else:
+                    mlp_layers += [nn.BatchNorm1d(s)]
             mlp_layers += [nn.Dropout(0.1)]
         self.drop_inp = nn.Dropout(0.2)
         self.mlp = nn.Sequential(*mlp_layers)
@@ -30,32 +36,36 @@ class MLP(nn.Module):
         return x
 
 
-def get_conv(s_in, s_out, k, stride, padding, use_bn=False):
+def get_conv(s_in, s_out, k, stride, padding, use_bn=False, num_gpus_to_emulate_bn=0):
     out = [nn.Conv2d(s_in, s_out, k, stride, padding=padding)]
     out += [nn.ELU()]
     if use_bn:
-        out += [nn.BatchNorm2d(s_out)]
+        if num_gpus_to_emulate_bn:
+            out += [BatchNorm2dEmulateMultiGPU(s_out, num_gpus_to_emulate_bn)]
+        else:
+            out += [nn.BatchNorm2d(s_out)]
     return nn.Sequential(*out)
 
 
 class Net2(nn.Module):
-    def __init__(self, latent_dim=128, use_bn=False):
+    def __init__(self, latent_dim=128, use_bn=False, num_gpus_to_emulate_bn=0):
         super(Net2, self).__init__()
         self.latent_dim = latent_dim
+        self.num_gpus_to_emulate_bn = num_gpus_to_emulate_bn
         self.use_bn = use_bn
 
         s_old = 1
         s = 32
-        self.conv1 = get_conv(s_old, s, 3, 1, padding=1, use_bn=self.use_bn)
-        self.conv2 = get_conv(s, s, 3, 1, padding=1, use_bn=self.use_bn)
+        self.conv1 = get_conv(s_old, s, 3, 1, 1, self.use_bn, self.num_gpus_to_emulate_bn)
+        self.conv2 = get_conv(s, s, 3, 1, 1, self.use_bn, self.num_gpus_to_emulate_bn)
         s_old = s
         s = 64
-        self.conv3 = get_conv(s_old, s, 3, 1, padding=1, use_bn=self.use_bn)
-        self.conv4 = get_conv(s, s, 3, 1, padding=1, use_bn=self.use_bn)
+        self.conv3 = get_conv(s_old, s, 3, 1, 1, self.use_bn, self.num_gpus_to_emulate_bn)
+        self.conv4 = get_conv(s, s, 3, 1, 1, self.use_bn, self.num_gpus_to_emulate_bn)
         s_old = s
         s = 128
-        self.conv5 = get_conv(s_old, s, 3, 1, padding=1, use_bn=self.use_bn)
-        self.conv6 = get_conv(s, s, 3, 1, padding=1, use_bn=self.use_bn)
+        self.conv5 = get_conv(s_old, s, 3, 1, 1, self.use_bn, self.num_gpus_to_emulate_bn)
+        self.conv6 = get_conv(s, s, 3, 1, 1, self.use_bn, self.num_gpus_to_emulate_bn)
         s_old = s
 
         self.fc1 = nn.Linear(1152, self.latent_dim)
