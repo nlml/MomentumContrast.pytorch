@@ -488,6 +488,7 @@ def go(run_name):
     optimizer = optim.SGD(
         model_q.parameters(), lr=0.001, weight_decay=1e-3, momentum=0.9
     )
+    # torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
     queue = initialize_queue(model_k, device, train_loader, latent_dim)
 
     dfs = {
