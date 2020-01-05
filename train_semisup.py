@@ -48,7 +48,13 @@ def get_dataset(name):
 
 @gin.configurable
 def get_network(archi, latent_dim, use_bn=True, num_gpus_to_emulate_bn=0):
-    return WrapNet(archi_dict[archi](latent_dim=latent_dim, use_bn=use_bn, num_gpus_to_emulate_bn=num_gpus_to_emulate_bn))
+    return WrapNet(
+        archi_dict[archi](
+            latent_dim=latent_dim,
+            use_bn=use_bn,
+            num_gpus_to_emulate_bn=num_gpus_to_emulate_bn,
+        )
+    )
 
 
 def random_subset_of_class_idxs(rng, targets, c):
@@ -143,7 +149,7 @@ def get_p_bb_knn(m_bb, n_neighbours, pct=90):
     now = time.time()
     # argsort = m_bb.argsort(1)[:, -n_neighbours:]
     cuts = torch.FloatTensor(np.percentile(m_bb.cpu().numpy(), pct, axis=1))
-    sel = (m_bb > cuts.view(-1, 1))
+    sel = m_bb > cuts.view(-1, 1)
     p_bb = torch.zeros_like(m_bb)
     # Fill n closest points with equal probability
     # p_bb[torch.arange(s).unsqueeze(1), argsort] = 1.0 / n_neighbours
@@ -162,7 +168,7 @@ def calc_walker_loss(
     inv_lim=1024,
     random_inverse_subsampling=False,
     use_latest_for_inv=False,
-    neighbours_mode=False
+    neighbours_mode=False,
 ):
     if gamma > 0 and b.shape[0] > inv_lim:
         if random_inverse_subsampling:
@@ -191,7 +197,9 @@ def calc_walker_loss(
 
             add = np.log(gamma) if gamma < 1.0 else 0.0
             match_ab_bb = torch.cat([match_ba, match_bb + add], dim=1)
-            p_ba_bb = torch.clamp(F.softmax(match_ab_bb / temp, dim=1), min=1e-8)
+            p_ba_bb = torch.clamp(
+                F.softmax(match_ab_bb / temp, dim=1), min=1e-8
+            )
             N = a.shape[0]
             M = b.shape[0]
             Tbar_ul, Tbar_uu = p_ba_bb[:, :N], p_ba_bb[:, N:]
@@ -335,7 +343,7 @@ def train(
                         random_inverse_subsampling=random_inverse_subsampling,
                         use_latest_for_inv=use_latest_for_inv,
                         inv_lim=inv_lim,
-                        neighbours_mode=neighbours_mode
+                        neighbours_mode=neighbours_mode,
                     )
                 if walk_unsup_weight > 0.0:
                     loss_walker += walk_unsup_weight * calc_walker_loss(
@@ -348,7 +356,7 @@ def train(
                         random_inverse_subsampling=random_inverse_subsampling,
                         use_latest_for_inv=use_latest_for_inv,
                         inv_lim=inv_lim,
-                        neighbours_mode=neighbours_mode
+                        neighbours_mode=neighbours_mode,
                     )
                 loss += walk_weight * loss_walker
 
