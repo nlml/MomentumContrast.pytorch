@@ -510,7 +510,7 @@ def go(run_name):
     )
 
     if scheduler_params is not None:
-        scheduler = StepLR(
+        scheduler = optim.lr_scheduler.StepLR(
             optimizer, step_size=scheduler_params[0], gamma=scheduler_params[1]
         )
     queue = initialize_queue(model_k, device, train_loader, latent_dim)
