@@ -47,12 +47,19 @@ def get_dataset(name):
 
 
 @gin.configurable
-def get_network(archi, latent_dim, use_bn=True, num_gpus_to_emulate_bn=0):
+def get_network(
+    archi,
+    latent_dim,
+    use_bn=True,
+    num_gpus_to_emulate_bn=0,
+    bn_before_relu=False,
+):
     return WrapNet(
         archi_dict[archi](
             latent_dim=latent_dim,
             use_bn=use_bn,
             num_gpus_to_emulate_bn=num_gpus_to_emulate_bn,
+            bn_before_relu=bn_before_relu,
         )
     )
 
@@ -427,9 +434,15 @@ def test(dfs, model, epoch, device, test_loader, run_name):
 
 @gin.configurable
 def get_args(
-    batchsize=100, epochs=50, out_dir="result", no_cuda=False, latent_dim=128
+    batchsize=100,
+    epochs=50,
+    out_dir="result",
+    no_cuda=False,
+    latent_dim=128,
+    scheduler_params=None,
 ):
-    return batchsize, epochs, out_dir, no_cuda, latent_dim
+    # scheduler_params = [step_size, gamma]
+    return batchsize, epochs, out_dir, no_cuda, latent_dim, scheduler_params
 
 
 def go(run_name):
@@ -443,7 +456,14 @@ def go(run_name):
     print("Parsed config:")
     print(cfg_path)
 
-    batchsize, epochs, out_dir, no_cuda, latent_dim = get_args()
+    (
+        batchsize,
+        epochs,
+        out_dir,
+        no_cuda,
+        latent_dim,
+        scheduler_params,
+    ) = get_args()
 
     transform_test = transforms.Compose(
         [transforms.ToTensor(), transforms.Normalize((0.1307,), (0.3081,))]
@@ -488,7 +508,11 @@ def go(run_name):
     optimizer = optim.SGD(
         model_q.parameters(), lr=0.001, weight_decay=1e-3, momentum=0.9
     )
-    # torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
+
+    if scheduler_params is not None:
+        scheduler = StepLR(
+            optimizer, step_size=scheduler_params[0], gamma=scheduler_params[1]
+        )
     queue = initialize_queue(model_k, device, train_loader, latent_dim)
 
     dfs = {
@@ -514,6 +538,8 @@ def go(run_name):
             epoch,
         )
         dfs = test(dfs, model_q, epoch, device, test_loader, run_name)
+        if scheduler_params is not None:
+            scheduler.step()
 
     # os.makedirs(out_dir, exist_ok=True)
     # torch.save(model_q.state_dict(), os.path.join(out_dir, "model.pth"))
