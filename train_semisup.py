@@ -440,9 +440,11 @@ def get_args(
     no_cuda=False,
     latent_dim=128,
     scheduler_params=None,
+    momentum=0.9,
+    weight_decay=1e-3,
 ):
     # scheduler_params = [step_size, gamma]
-    return batchsize, epochs, out_dir, no_cuda, latent_dim, scheduler_params
+    return batchsize, epochs, out_dir, no_cuda, latent_dim, scheduler_params, momentum, weight_decay
 
 
 def go(run_name):
@@ -463,6 +465,8 @@ def go(run_name):
         no_cuda,
         latent_dim,
         scheduler_params,
+        momentum,
+        weight_decay,
     ) = get_args()
 
     transform_test = transforms.Compose(
@@ -506,7 +510,7 @@ def go(run_name):
     model_k = get_network(latent_dim=latent_dim).to(device)
 
     optimizer = optim.SGD(
-        model_q.parameters(), lr=0.001, weight_decay=1e-3, momentum=0.9
+        model_q.parameters(), lr=0.001, weight_decay=weight_decay, momentum=momentum
     )
 
     if scheduler_params is not None:
