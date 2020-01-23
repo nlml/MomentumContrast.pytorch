@@ -26,4 +26,4 @@ get_network.num_gpus_to_emulate_bn = 4
 
 get_network.bn_before_relu = True
 
-get_network.weight_decay = 1e-4
+get_args.weight_decay = 1e-4
